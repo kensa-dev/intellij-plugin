@@ -40,6 +40,8 @@ class KensaTestResultsService(private val project: Project) {
 
     fun allIndexPaths(): Set<String> = classIndexPaths.values.toSet()
 
+    fun hasAnyResults(): Boolean = classResults.isNotEmpty()
+
     fun classesForIndex(indexHtmlPath: String): List<String> =
         classIndexPaths.entries
             .filter { it.value == indexHtmlPath }
