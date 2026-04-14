@@ -17,7 +17,9 @@
     <extensions defaultExtensionNs="com.intellij">
         <consoleFilterProvider implementation="dev.kensa.plugin.intellij.console.KensaConsoleFilterProvider"/>
         <notificationGroup id="Kensa" displayType="BALLOON"/>
+        <notificationGroup id="Kensa.Engagement" displayType="BALLOON"/>
         <postStartupActivity implementation="dev.kensa.plugin.intellij.execution.KensaOutputFileWatcherStartupActivity"/>
+        <applicationService serviceImplementation="dev.kensa.plugin.intellij.settings.KensaEngagementService"/>
         <projectConfigurable
             parentId="tools"
             instance="dev.kensa.plugin.intellij.settings.KensaSettingsConfigurable"
