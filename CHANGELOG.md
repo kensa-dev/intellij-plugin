@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 ### Added
+- Star prompt shown after every 5 Kensa test runs, with a "Don't ask again" option
+
+### Changed
+- Run window toolbar icon is now hidden unless the active run configuration is a Kensa-relevant test (JUnit, Gradle test task, or Maven test goal)
+- Gutter icon statuses update live during test runs, not just on index file reload
+
+### Removed
+- Search Everywhere contributor
+
+## [0.6.7]
+### Added
 - Project view context menu — right-click any folder to open Kensa reports found below it; one menu item per output directory, sorted alphabetically. Works across multi-module Gradle and Maven projects
 - Ignored/disabled test state with amber gutter icon, in addition to existing pass/fail icons
 - Configurable output directory name — Settings → Tools → Kensa → Output directory name (default: `kensa-output`), for projects that customise the Kensa output path
