@@ -48,6 +48,9 @@
             <className>dev.kensa.plugin.intellij.intention.KensaReportIntentionGroup</className>
             <category>Kensa</category>
         </intentionAction>
+        <statusBarWidgetFactory
+            id="kensa.status"
+            implementation="dev.kensa.plugin.intellij.statusbar.KensaStatusBarWidgetFactory"/>
     </extensions>
 
     <projectListeners>

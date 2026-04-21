@@ -25,9 +25,15 @@ class KensaTestResultsService(private val project: Project) {
     private val methodResults = ConcurrentHashMap<String, TestStatus>()
     private val classResults = ConcurrentHashMap<String, TestStatus>()
     private val classIndexPaths = ConcurrentHashMap<String, String>()
+    private val indexPathUpdatedAt = ConcurrentHashMap<String, Long>()
 
     @Volatile
     var latestIndexPath: String? = null
+
+    data class CountSnapshot(val passed: Int, val failed: Int, val ignored: Int) {
+        val total: Int get() = passed + failed + ignored
+        val isEmpty: Boolean get() = total == 0
+    }
 
     fun getMethodStatus(classFqn: String, methodName: String): TestStatus? =
         methodResults["$classFqn#$methodName"]
@@ -39,6 +45,38 @@ class KensaTestResultsService(private val project: Project) {
         classIndexPaths[classFqn]
 
     fun allIndexPaths(): Set<String> = classIndexPaths.values.toSet()
+
+    fun indexPathsByRecency(): List<String> =
+        indexPathUpdatedAt.entries
+            .sortedByDescending { it.value }
+            .map { it.key }
+
+    fun snapshot(): CountSnapshot = snapshotFor(classResults.keys)
+
+    fun snapshotForIndex(indexHtmlPath: String): CountSnapshot =
+        snapshotFor(classesForIndex(indexHtmlPath))
+
+    private fun snapshotFor(classFqns: Collection<String>): CountSnapshot {
+        var passed = 0; var failed = 0; var ignored = 0
+        for (classFqn in classFqns) {
+            val methods = methodsForClass(classFqn)
+            if (methods.isEmpty()) {
+                when (classResults[classFqn]) {
+                    TestStatus.PASSED -> passed++
+                    TestStatus.FAILED -> failed++
+                    TestStatus.IGNORED -> ignored++
+                    null -> {}
+                }
+            } else {
+                for (status in methods.values) when (status) {
+                    TestStatus.PASSED -> passed++
+                    TestStatus.FAILED -> failed++
+                    TestStatus.IGNORED -> ignored++
+                }
+            }
+        }
+        return CountSnapshot(passed, failed, ignored)
+    }
 
 fun classesForIndex(indexHtmlPath: String): List<String> =
         classIndexPaths.entries
@@ -60,6 +98,9 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
             classIndexPaths.remove(classFqn)
             methodResults.keys.removeIf { it.startsWith("$classFqn#") }
         }
+        if (classIndexPaths.values.none { it == indexHtmlPath }) {
+            indexPathUpdatedAt.remove(indexHtmlPath)
+        }
     }
 
     fun updateFromIndex(
@@ -75,6 +116,7 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
             else null
         if (effectiveClassStatus != null) classResults[classFqn] = effectiveClassStatus
         classIndexPaths[classFqn] = indexHtmlPath
+        indexPathUpdatedAt[indexHtmlPath] = System.currentTimeMillis()
         latestIndexPath = indexHtmlPath
         methodStatuses.forEach { (method, status) ->
             methodResults["$classFqn#$method"] = status

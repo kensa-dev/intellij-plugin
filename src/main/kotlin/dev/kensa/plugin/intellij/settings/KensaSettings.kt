@@ -2,6 +2,8 @@ package dev.kensa.plugin.intellij.settings
 
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets.UTF_8
 
 @Service(Service.Level.PROJECT)
 @State(
@@ -15,12 +17,20 @@ class KensaSettings : SimplePersistentStateComponent<KensaSettingsState>(KensaSe
 
     fun resolveUrl(project: Project, classFqn: String, methodName: String?): String? {
         val template = state.ciReportUrlTemplate?.takeIf { it.isNotBlank() } ?: return null
+        return substitute(project.name, template, classFqn, methodName)
+    }
 
+    fun previewUrl(project: Project, template: String, classFqn: String, methodName: String?): String? {
+        val trimmed = template.takeIf { it.isNotBlank() } ?: return null
+        return substitute(project.name, trimmed, classFqn, methodName)
+    }
+
+    private fun substitute(projectName: String, template: String, classFqn: String, methodName: String?): String {
         val simpleClassName = classFqn.substringAfterLast('.')
         val packageName = classFqn.substringBeforeLast('.', missingDelimiterValue = "")
 
         return template
-            .replace("{projectName}", project.name)
+            .replace("{projectName}", projectName)
             .replace("{testClass}", classFqn)
             .replace("{simpleClassName}", simpleClassName)
             .replace("{packageName}", packageName)
@@ -29,7 +39,7 @@ class KensaSettings : SimplePersistentStateComponent<KensaSettingsState>(KensaSe
                     url.replace(Regex("[?&]method=\\{testMethod}"), "")
                         .replace("{testMethod}", "")
                 } else {
-                    url.replace("{testMethod}", java.net.URLEncoder.encode(methodName, java.nio.charset.StandardCharsets.UTF_8))
+                    url.replace("{testMethod}", URLEncoder.encode(methodName, UTF_8))
                 }
             }
     }
