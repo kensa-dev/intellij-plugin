@@ -103,6 +103,16 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
         }
     }
 
+    fun pruneMissingFiles() {
+        val stale = classIndexPaths.values.toSet().filter { !java.io.File(it).exists() }
+        if (stale.isEmpty()) return
+        stale.forEach { clearForIndexHtml(it) }
+        if (latestIndexPath?.let { !java.io.File(it).exists() } == true) {
+            latestIndexPath = indexPathsByRecency().firstOrNull()
+        }
+        refreshMarkers()
+    }
+
     fun updateFromIndex(
         classFqn: String,
         classStatus: TestStatus?,

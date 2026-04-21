@@ -17,7 +17,11 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.util.concurrency.AppExecutorUtil
+import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
+import java.util.concurrent.TimeUnit
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.openapi.components.service
@@ -41,9 +45,25 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
         val lastNotifiedAt = AtomicLong(0)
         val debounceMs = 3000L
 
+        val pollTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
+            {
+                if (!project.isDisposed) project.service<KensaTestResultsService>().pruneMissingFiles()
+            },
+            5, 5, TimeUnit.SECONDS,
+        )
+        com.intellij.openapi.util.Disposer.register(project) { pollTask.cancel(false) }
+
         project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
                 val outputDir = project.service<KensaSettings>().effectiveOutputDirName
+
+                val hasRelevantDelete = events.any { event ->
+                    event is VFileDeleteEvent && event.path.startsWith(basePath)
+                }
+                if (hasRelevantDelete) {
+                    project.service<KensaTestResultsService>().pruneMissingFiles()
+                }
+
                 val kensaEvents = events.filter { event ->
                     (event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                         event.path.startsWith(basePath) &&

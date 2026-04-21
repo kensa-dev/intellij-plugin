@@ -12,11 +12,13 @@ import com.intellij.openapi.util.Key
 import dev.kensa.plugin.intellij.execution.KensaEngagementNotifier
 import dev.kensa.plugin.intellij.execution.KensaRunTabRegistry
 import dev.kensa.plugin.intellij.settings.KensaEngagementService
+import dev.kensa.plugin.intellij.settings.KensaSettings
+import java.io.File
 
 class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapter() {
 
     companion object {
-        private val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
+        internal val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
     }
 
     override fun onTestingStarted(testsRoot: SMRootTestProxy) {
@@ -28,7 +30,8 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
     override fun onTestFinished(test: SMTestProxy) {
         val (classFqn, methodName) = parseLocation(test.locationUrl ?: return) ?: return
         methodName ?: return
-        project.service<KensaTestResultsService>().updateMethod(classFqn, methodName, test.toStatus() ?: return)
+        val baseMethod = methodName.substringBefore('[').takeIf { it.isNotBlank() } ?: return
+        project.service<KensaTestResultsService>().updateMethod(classFqn, baseMethod, test.toStatus() ?: return)
         maybeTagDescriptor(test, classFqn)
     }
 
@@ -40,6 +43,11 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
     }
 
     override fun onTestingFinished(testsRoot: SMRootTestProxy) {
+        project.basePath?.let { base ->
+            val outputDir = project.service<KensaSettings>().effectiveOutputDirName
+            KensaIndexLoader.scan(project, File(base), outputDir)
+        }
+
         val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY) ?: return
         if (project.service<KensaRunTabRegistry>().indexPathFor(descriptor) == null) return
 
@@ -56,9 +64,8 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
     }
 
     private fun maybeTagDescriptor(proxy: SMTestProxy, classFqn: String) {
-        val indexPath = project.service<KensaTestResultsService>().getIndexPath(classFqn) ?: return
         val descriptor = proxy.rootDescriptor() ?: return
-        project.service<KensaRunTabRegistry>().tag(descriptor, indexPath)
+        project.service<KensaRunTabRegistry>().recordClass(descriptor, classFqn)
     }
 
     private fun SMTestProxy.rootDescriptor(): RunContentDescriptor? {

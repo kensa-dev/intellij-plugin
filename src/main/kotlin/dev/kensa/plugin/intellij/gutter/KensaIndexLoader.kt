@@ -6,6 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import java.io.File
 
 object KensaIndexLoader {
 
@@ -13,14 +14,30 @@ object KensaIndexLoader {
     private val log = thisLogger()
 
     fun loadFromFile(project: Project, indicesJson: VirtualFile) {
-        val indexHtml = indicesJson.parent?.findChild("index.html") ?: return
+        val parentPath = indicesJson.parent?.path ?: return
+        val json = indicesJson.inputStream.reader().use { it.readText() }
+        loadJson(project, parentPath, json, indicesJson.path)
+    }
 
+    fun loadFromFile(project: Project, indicesJson: File) {
+        val parentPath = indicesJson.parentFile?.absolutePath ?: return
+        val json = indicesJson.readText()
+        loadJson(project, parentPath, json, indicesJson.absolutePath)
+    }
+
+    fun scan(project: Project, root: File, outputDirName: String) {
+        root.walkTopDown()
+            .filter { it.name == "indices.json" && it.parentFile?.name == outputDirName }
+            .forEach { loadFromFile(project, it) }
+    }
+
+    private fun loadJson(project: Project, parentPath: String, json: String, sourceForLog: String) {
+        val indexHtmlPath = "$parentPath/index.html"
         try {
-            val json = indicesJson.inputStream.reader().use { it.readText() }
             val root = gson.fromJson(json, KensaIndicesRoot::class.java) ?: return
 
             val service = project.service<KensaTestResultsService>()
-            service.clearForIndexHtml(indexHtml.path)
+            service.clearForIndexHtml(indexHtmlPath)
             root.indices?.forEach { entry ->
                 val classFqn = entry.testClass ?: return@forEach
                 val classStatus = entry.state?.toTestStatus()
@@ -33,10 +50,10 @@ object KensaIndexLoader {
                     ?.toMap()
                     ?: emptyMap()
 
-                service.updateFromIndex(classFqn, classStatus, indexHtml.path, methodStatuses)
+                service.updateFromIndex(classFqn, classStatus, indexHtmlPath, methodStatuses)
             }
         } catch (e: Exception) {
-            log.warn("Failed to parse Kensa indices.json at ${indicesJson.path}", e)
+            log.warn("Failed to parse Kensa indices.json at $sourceForLog", e)
         }
     }
 
