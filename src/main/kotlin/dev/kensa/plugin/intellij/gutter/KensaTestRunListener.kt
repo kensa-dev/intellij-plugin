@@ -2,29 +2,46 @@ package dev.kensa.plugin.intellij.gutter
 
 import com.intellij.execution.testframework.sm.runner.SMTRunnerEventsAdapter
 import com.intellij.execution.testframework.sm.runner.SMTestProxy
+import com.intellij.execution.testframework.sm.runner.SMTestProxy.SMRootTestProxy
+import com.intellij.execution.ui.RunContentDescriptor
+import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import dev.kensa.plugin.intellij.execution.KensaEngagementNotifier
+import dev.kensa.plugin.intellij.execution.KensaRunTabRegistry
 import dev.kensa.plugin.intellij.settings.KensaEngagementService
-import com.intellij.execution.testframework.sm.runner.SMTestProxy.SMRootTestProxy
 
 class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapter() {
+
+    companion object {
+        private val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
+    }
+
+    override fun onTestingStarted(testsRoot: SMRootTestProxy) {
+        RunContentManager.getInstance(project).selectedContent?.let { descriptor ->
+            testsRoot.putUserData(DESCRIPTOR_KEY, descriptor)
+        }
+    }
 
     override fun onTestFinished(test: SMTestProxy) {
         val (classFqn, methodName) = parseLocation(test.locationUrl ?: return) ?: return
         methodName ?: return
         project.service<KensaTestResultsService>().updateMethod(classFqn, methodName, test.toStatus() ?: return)
+        maybeTagDescriptor(test, classFqn)
     }
 
     override fun onSuiteFinished(suite: SMTestProxy) {
         val (classFqn, methodName) = parseLocation(suite.locationUrl ?: return) ?: return
         if (methodName != null) return // only handle class-level suites
         project.service<KensaTestResultsService>().updateClass(classFqn, suite.toStatus() ?: return)
+        maybeTagDescriptor(suite, classFqn)
     }
 
     override fun onTestingFinished(testsRoot: SMRootTestProxy) {
-        if (!project.service<KensaTestResultsService>().hasAnyResults()) return
+        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY) ?: return
+        if (project.service<KensaRunTabRegistry>().indexPathFor(descriptor) == null) return
 
         val engagementService = ApplicationManager.getApplication().service<KensaEngagementService>()
         val state = engagementService.state
@@ -36,6 +53,21 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
             state.runsSinceLastPrompt = 0
             KensaEngagementNotifier.show(project)
         }
+    }
+
+    private fun maybeTagDescriptor(proxy: SMTestProxy, classFqn: String) {
+        val indexPath = project.service<KensaTestResultsService>().getIndexPath(classFqn) ?: return
+        val descriptor = proxy.rootDescriptor() ?: return
+        project.service<KensaRunTabRegistry>().tag(descriptor, indexPath)
+    }
+
+    private fun SMTestProxy.rootDescriptor(): RunContentDescriptor? {
+        var node: SMTestProxy? = this
+        while (node != null) {
+            if (node is SMRootTestProxy) return node.getUserData(DESCRIPTOR_KEY)
+            node = node.parent
+        }
+        return null
     }
 
     private fun SMTestProxy.toStatus(): TestStatus? = when {
