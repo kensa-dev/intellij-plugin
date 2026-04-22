@@ -1,6 +1,7 @@
 package dev.kensa.plugin.intellij.execution
 
 import com.intellij.execution.ui.RunContentDescriptor
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.Service.Level.PROJECT
 import com.intellij.openapi.components.service
@@ -15,12 +16,14 @@ class KensaRunTabRegistry(private val project: Project) {
     private val seenClasses = ConcurrentHashMap<RunContentDescriptor, MutableSet<String>>()
 
     fun recordClass(descriptor: RunContentDescriptor, classFqn: String) {
-        if (Disposer.isDisposed(descriptor)) return
-        val set = seenClasses.computeIfAbsent(descriptor) {
+        val newSet = ConcurrentHashMap.newKeySet<String>()
+        val existing = seenClasses.putIfAbsent(descriptor, newSet)
+        if (existing == null) {
+            newSet.add(classFqn)
             registerCleanup(descriptor)
-            ConcurrentHashMap.newKeySet()
+        } else {
+            existing.add(classFqn)
         }
-        set.add(classFqn)
     }
 
     fun indexPathFor(descriptor: RunContentDescriptor): String? {
@@ -30,10 +33,9 @@ class KensaRunTabRegistry(private val project: Project) {
     }
 
     private fun registerCleanup(descriptor: RunContentDescriptor) {
-        if (Disposer.isDisposed(descriptor)) {
+        val cleanup = Disposable { seenClasses.remove(descriptor) }
+        if (!Disposer.tryRegister(descriptor, cleanup)) {
             seenClasses.remove(descriptor)
-            return
         }
-        Disposer.register(descriptor) { seenClasses.remove(descriptor) }
     }
 }

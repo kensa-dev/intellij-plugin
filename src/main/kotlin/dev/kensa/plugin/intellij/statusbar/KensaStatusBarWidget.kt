@@ -73,8 +73,6 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
         statusBar = null
     }
 
-    override fun getPresentation(): StatusBarWidget.WidgetPresentation? = null
-
     private fun refresh() {
         com.intellij.openapi.application.invokeLater {
             if (project.isDisposed) return@invokeLater

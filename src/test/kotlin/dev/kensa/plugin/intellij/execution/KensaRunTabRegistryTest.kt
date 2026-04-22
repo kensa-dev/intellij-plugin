@@ -64,6 +64,25 @@ class KensaRunTabRegistryTest : BasePlatformTestCase() {
         assertEquals("/out/index.html", registry.indexPathFor(descriptor))
     }
 
+    fun testRecordClassIsNoOpForAlreadyDisposedDescriptor() {
+        val results = project.service<KensaTestResultsService>()
+        val registry = project.service<KensaRunTabRegistry>()
+
+        results.updateFromIndex(
+            "com.example.Disposed",
+            null,
+            "/out/index.html",
+            mapOf("m" to TestStatus.PASSED),
+        )
+
+        val descriptor = RunContentDescriptor(null, null, JLabel(), "disposed-before-record")
+        Disposer.dispose(descriptor)
+
+        registry.recordClass(descriptor, "com.example.Disposed")
+
+        assertNull(registry.indexPathFor(descriptor))
+    }
+
     private fun newDescriptor(): RunContentDescriptor {
         val descriptor = RunContentDescriptor(null, null, JLabel(), "test")
         Disposer.register(testRootDisposable, descriptor)
