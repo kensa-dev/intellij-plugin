@@ -4,8 +4,6 @@
     <name>Kensa</name>
     <vendor url="https://kensa.dev" email="paul@kensa.dev">Kensa</vendor>
 
-    <dynamic>true</dynamic>
-
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
     <depends>JUnit</depends>
@@ -39,12 +37,6 @@
 <!--            icon="/icons/logo.svg"-->
 <!--            canCloseContents="false"/>-->
         <intentionAction>
-            <language>JAVA</language>
-            <className>dev.kensa.plugin.intellij.intention.KensaReportIntentionGroup</className>
-            <category>Kensa</category>
-        </intentionAction>
-        <intentionAction>
-            <language>kotlin</language>
             <className>dev.kensa.plugin.intellij.intention.KensaReportIntentionGroup</className>
             <category>Kensa</category>
         </intentionAction>
