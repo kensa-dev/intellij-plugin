@@ -30,6 +30,7 @@ import com.intellij.openapi.components.service
 import dev.kensa.plugin.intellij.gutter.KensaIndexLoader
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -43,6 +44,24 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
         val startupComplete = AtomicBoolean(false)
         val lastNotifiedAt = AtomicLong(0)
         val debounceMs = 3000L
+        val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
+
+        fun loadIfNewer(file: File) {
+            val mtime = file.lastModified()
+            val key = file.absolutePath
+            val lastLoaded = lastLoadedMtimes[key]
+            if (lastLoaded != null && mtime <= lastLoaded) return
+            lastLoadedMtimes[key] = mtime
+            KensaIndexLoader.loadFromFile(project, file)
+        }
+
+        fun walkForIndices() {
+            if (project.isDisposed) return
+            val outputDir = project.service<KensaSettings>().effectiveOutputDirName
+            File(basePath).walkTopDown()
+                .filter { it.name == "indices.json" && it.parentFile?.name == outputDir }
+                .forEach(::loadIfNewer)
+        }
 
         project.messageBus.connect().subscribe(
             KensaTestResultsService.KENSA_RESULTS_TOPIC,
@@ -71,7 +90,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
             }
         )
 
-        scanExistingIndices(project, basePath)
+        walkForIndices()
         ApplicationManager.getApplication().invokeLater {
             DaemonCodeAnalyzer.getInstance(project).restart("Kensa startup scan complete")
             startupComplete.set(true)
@@ -79,7 +98,10 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
 
         val pollTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
             {
-                if (!project.isDisposed) project.service<KensaTestResultsService>().pruneMissingFiles()
+                if (project.isDisposed) return@scheduleWithFixedDelay
+                walkForIndices()
+                project.service<KensaTestResultsService>().pruneMissingFiles()
+                lastLoadedMtimes.keys.removeIf { !File(it).exists() }
             },
             5, 5, TimeUnit.SECONDS,
         )
@@ -96,28 +118,17 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                     project.service<KensaTestResultsService>().pruneMissingFiles()
                 }
 
-                val indexJsonEvents = events.filter { event ->
-                    (event is VFileContentChangeEvent || event is VFileCreateEvent) &&
+                events.forEach { event ->
+                    if ((event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                         event.path.startsWith(basePath) &&
                         event.path.contains("/$outputDir/") &&
                         event.path.endsWith("/indices.json")
-                }
-                indexJsonEvents.forEach { event ->
-                    val vFile = LocalFileSystem.getInstance().findFileByPath(event.path) ?: return@forEach
-                    KensaIndexLoader.loadFromFile(project, vFile)
+                    ) {
+                        loadIfNewer(File(event.path))
+                    }
                 }
             }
         })
-    }
-
-    private fun scanExistingIndices(project: Project, basePath: String) {
-        val outputDir = project.service<KensaSettings>().effectiveOutputDirName
-        File(basePath).walkTopDown()
-            .filter { it.name == "indices.json" && it.parentFile?.name == outputDir }
-            .forEach { file ->
-                val vFile = LocalFileSystem.getInstance().findFileByPath(file.path) ?: return@forEach
-                KensaIndexLoader.loadFromFile(project, vFile)
-            }
     }
 
     private class OpenKensaReportNotificationAction(
