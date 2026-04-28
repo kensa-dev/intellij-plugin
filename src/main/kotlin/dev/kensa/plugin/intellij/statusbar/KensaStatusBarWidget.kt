@@ -64,7 +64,7 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
         this.statusBar = statusBar
         project.messageBus.connect(this).subscribe(
             KensaTestResultsService.KENSA_RESULTS_TOPIC,
-            KensaResultsListener { refresh() }
+            KensaResultsListener { _ -> refresh() }
         )
         refresh()
     }

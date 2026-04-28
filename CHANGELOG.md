@@ -3,6 +3,10 @@
 # Kensa IntelliJ Plugin Changelog
 
 ## [Unreleased]
+### Fixed
+- Possible fixes for unreliable display of test runner icon & Kensa Report bubble.
+
+## [0.7.1]
 ### Added
 - Star prompt shown after every 5 Kensa test runs, with a "Don't ask again" option
 - Status bar widget showing aggregated pass/fail/ignored counts with coloured state icons; click opens the latest report, or a picker listing per-module reports with counts when multiple `kensa-output` directories are present. Hidden when the project has no Kensa results

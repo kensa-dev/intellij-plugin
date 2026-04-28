@@ -2,6 +2,7 @@
 package dev.kensa.plugin.intellij.execution
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.ide.ActivityTracker
 import com.intellij.ide.browsers.BrowserLauncher
 import com.intellij.ide.browsers.OpenInBrowserRequest
 import com.intellij.ide.browsers.WebBrowserService
@@ -20,6 +21,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.util.concurrency.AppExecutorUtil
+import dev.kensa.plugin.intellij.gutter.KensaResultsListener
 import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
 import java.util.concurrent.TimeUnit
 import com.intellij.psi.PsiElement
@@ -28,6 +30,7 @@ import com.intellij.openapi.components.service
 import dev.kensa.plugin.intellij.gutter.KensaIndexLoader
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class KensaOutputFileWatcherStartupActivity : ProjectActivity {
@@ -37,13 +40,42 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
         val basePath = project.basePath ?: return
 
+        val startupComplete = AtomicBoolean(false)
+        val lastNotifiedAt = AtomicLong(0)
+        val debounceMs = 3000L
+
+        project.messageBus.connect().subscribe(
+            KensaTestResultsService.KENSA_RESULTS_TOPIC,
+            KensaResultsListener { indexHtmlPath ->
+                ActivityTracker.getInstance().inc()
+
+                if (indexHtmlPath == null) return@KensaResultsListener
+                if (!startupComplete.get()) return@KensaResultsListener
+
+                val now = System.currentTimeMillis()
+                val last = lastNotifiedAt.get()
+                if (now - last < debounceMs) return@KensaResultsListener
+                if (!lastNotifiedAt.compareAndSet(last, now)) return@KensaResultsListener
+
+                log.debug("Kensa output detected: $indexHtmlPath")
+
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("Kensa")
+                    .createNotification(
+                        "Kensa Report Ready",
+                        "Test report updated",
+                        NotificationType.INFORMATION,
+                    )
+                    .addAction(OpenKensaReportNotificationAction(project, indexHtmlPath))
+                    .notify(project)
+            }
+        )
+
         scanExistingIndices(project, basePath)
         ApplicationManager.getApplication().invokeLater {
             DaemonCodeAnalyzer.getInstance(project).restart("Kensa startup scan complete")
+            startupComplete.set(true)
         }
-
-        val lastNotifiedAt = AtomicLong(0)
-        val debounceMs = 3000L
 
         val pollTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
             {
@@ -64,46 +96,16 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                     project.service<KensaTestResultsService>().pruneMissingFiles()
                 }
 
-                val kensaEvents = events.filter { event ->
+                val indexJsonEvents = events.filter { event ->
                     (event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                         event.path.startsWith(basePath) &&
                         event.path.contains("/$outputDir/") &&
-                        (event.path.endsWith("/index.html") || event.path.endsWith("/indices.json"))
+                        event.path.endsWith("/indices.json")
                 }
-
-                if (kensaEvents.isEmpty()) return
-
-                val indexJsonEvents = kensaEvents.filter { it.path.endsWith("/indices.json") }
                 indexJsonEvents.forEach { event ->
                     val vFile = LocalFileSystem.getInstance().findFileByPath(event.path) ?: return@forEach
                     KensaIndexLoader.loadFromFile(project, vFile)
                 }
-                if (indexJsonEvents.isNotEmpty()) {
-                    ApplicationManager.getApplication().invokeLater {
-                        DaemonCodeAnalyzer.getInstance(project).restart("Kensa test results updated")
-                    }
-                }
-
-                val indexHtmlEvents = kensaEvents.filter { it.path.endsWith("/index.html") }
-                if (indexHtmlEvents.isEmpty()) return
-
-                val now = System.currentTimeMillis()
-                val last = lastNotifiedAt.get()
-                if (now - last < debounceMs) return
-                if (!lastNotifiedAt.compareAndSet(last, now)) return
-
-                val indexPath = indexHtmlEvents.last().path
-                log.debug("Kensa output detected: $indexPath")
-
-                NotificationGroupManager.getInstance()
-                    .getNotificationGroup("Kensa")
-                    .createNotification(
-                        "Kensa Report Ready",
-                        "Test report updated",
-                        NotificationType.INFORMATION,
-                    )
-                    .addAction(OpenKensaReportNotificationAction(project, indexPath))
-                    .notify(project)
             }
         })
     }

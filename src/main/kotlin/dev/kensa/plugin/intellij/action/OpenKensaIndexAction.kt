@@ -24,11 +24,7 @@ class OpenKensaIndexAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        val project = e.project
-        val descriptor = project?.let { RunContentManager.getInstance(it).selectedContent }
-        val visible = descriptor != null &&
-            project.service<KensaRunTabRegistry>().indexPathFor(descriptor) != null
-
+        val visible = e.project?.service<KensaTestResultsService>()?.latestIndexPath != null
         e.presentation.isVisible = visible
         e.presentation.isEnabled = visible
     }

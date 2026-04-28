@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 enum class TestStatus { PASSED, FAILED, IGNORED }
 
 fun interface KensaResultsListener {
-    fun resultsUpdated()
+    fun resultsUpdated(indexHtmlPath: String?)
 }
 
 @Service(PROJECT)
@@ -131,7 +131,7 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
         methodStatuses.forEach { (method, status) ->
             methodResults["$classFqn#$method"] = status
         }
-        refreshMarkers()
+        refreshMarkers(indexHtmlPath)
     }
 
     // Called by SMTRunnerEventsListener for real-time updates during a run
@@ -145,11 +145,11 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
         refreshMarkers()
     }
 
-    fun refreshMarkers() {
+    fun refreshMarkers(indexHtmlPath: String? = null) {
         invokeLater {
             if (!project.isDisposed) {
                 DaemonCodeAnalyzer.getInstance(project).restart("Kensa test results updated")
-                project.messageBus.syncPublisher(KENSA_RESULTS_TOPIC).resultsUpdated()
+                project.messageBus.syncPublisher(KENSA_RESULTS_TOPIC).resultsUpdated(indexHtmlPath)
             }
         }
     }
