@@ -24,8 +24,12 @@ kotlin {
 
 // Dependencies are managed with Gradle version catalog - read more: https://docs.gradle.org/current/userguide/version_catalogs.html
 dependencies {
-    testImplementation(libs.junit)
+    testImplementation(libs.junitJupiter)
     testImplementation(libs.opentest4j)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    // The platform's JUnit5 test framework still resolves a few JUnit4 classes at runtime;
+    // see https://plugins.jetbrains.com/docs/intellij/testing-faq.html#junit5-test-framework-refers-to-junit4
+    testRuntimeOnly(libs.junit)
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
@@ -40,7 +44,7 @@ dependencies {
         // Module Dependencies. Uses `platformBundledModules` property from the gradle.properties file for bundled IntelliJ Platform modules.
         bundledModules(providers.gradleProperty("platformBundledModules").map { it.split(',') })
 
-        testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.JUnit5)
     }
 }
 
@@ -123,6 +127,10 @@ kover {
 tasks {
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     publishPlugin {
