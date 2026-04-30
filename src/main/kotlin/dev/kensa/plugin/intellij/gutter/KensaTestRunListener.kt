@@ -6,16 +6,23 @@ import com.intellij.execution.testframework.sm.runner.SMTestProxy.SMRootTestProx
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.InheritanceUtil
 import dev.kensa.plugin.intellij.execution.KensaEngagementNotifier
 import dev.kensa.plugin.intellij.execution.KensaRunTabRegistry
 import dev.kensa.plugin.intellij.settings.KensaEngagementService
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
 
-class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapter() {
+class KensaTestRunListener(
+    private val project: Project,
+    private val isKensaTestClass: (String) -> Boolean = { fqn -> defaultIsKensaTestClass(project, fqn) },
+) : SMTRunnerEventsAdapter() {
 
     companion object {
         internal val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
@@ -43,13 +50,17 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
     }
 
     override fun onTestingFinished(testsRoot: SMRootTestProxy) {
+        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY) ?: return
+        val registry = project.service<KensaRunTabRegistry>()
+        // Only refresh + notify if this run actually exercised a Kensa-derived test class.
+        if (registry.classesFor(descriptor).isEmpty()) return
+
         project.basePath?.let { base ->
             val outputDir = project.service<KensaSettings>().effectiveOutputDirName
             KensaIndexLoader.scan(project, File(base), outputDir)
         }
 
-        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY) ?: return
-        if (project.service<KensaRunTabRegistry>().indexPathFor(descriptor) == null) return
+        if (registry.indexPathFor(descriptor) == null) return
 
         val engagementService = ApplicationManager.getApplication().service<KensaEngagementService>()
         val state = engagementService.state
@@ -65,6 +76,7 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
 
     private fun maybeTagDescriptor(proxy: SMTestProxy, classFqn: String) {
         val descriptor = proxy.rootDescriptor() ?: return
+        if (!isKensaTestClass(classFqn)) return
         project.service<KensaRunTabRegistry>().recordClass(descriptor, classFqn)
     }
 
@@ -96,3 +108,13 @@ class KensaTestRunListener(private val project: Project) : SMTRunnerEventsAdapte
         }
     }
 }
+
+private fun defaultIsKensaTestClass(project: Project, classFqn: String): Boolean =
+    ReadAction.compute<Boolean, RuntimeException> {
+        if (project.isDisposed) return@compute false
+        val facade = JavaPsiFacade.getInstance(project)
+        val scope = GlobalSearchScope.allScope(project)
+        val testClass = facade.findClass(classFqn, scope) ?: return@compute false
+        val kensa = facade.findClass(KENSA_TEST_FQN, scope) ?: return@compute false
+        InheritanceUtil.isInheritorOrSelf(testClass, kensa, true)
+    }

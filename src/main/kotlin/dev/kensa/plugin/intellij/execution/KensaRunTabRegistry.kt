@@ -32,6 +32,9 @@ class KensaRunTabRegistry(private val project: Project) {
         return classes.firstNotNullOfOrNull { service.getIndexPath(it) }
     }
 
+    fun classesFor(descriptor: RunContentDescriptor): Set<String> =
+        seenClasses[descriptor]?.toSet() ?: emptySet()
+
     private fun registerCleanup(descriptor: RunContentDescriptor) {
         val cleanup = Disposable { seenClasses.remove(descriptor) }
         if (!Disposer.tryRegister(descriptor, cleanup)) {

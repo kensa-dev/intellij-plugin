@@ -27,7 +27,7 @@ class KensaRunTabRegistryTest {
         val project = projectFixture.get()
         val results = project.service<KensaTestResultsService>()
         val registry = project.service<KensaRunTabRegistry>()
-        val listener = KensaTestRunListener(project)
+        val listener = KensaTestRunListener(project, isKensaTestClass = { true })
 
         results.updateFromIndex(
             "com.example.MyTest",
@@ -53,7 +53,7 @@ class KensaRunTabRegistryTest {
         val project = projectFixture.get()
         val results = project.service<KensaTestResultsService>()
         val registry = project.service<KensaRunTabRegistry>()
-        val listener = KensaTestRunListener(project)
+        val listener = KensaTestRunListener(project, isKensaTestClass = { true })
 
         val descriptor = newDescriptor()
         val root = SMRootTestProxy()
