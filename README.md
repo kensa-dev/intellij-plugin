@@ -1,6 +1,6 @@
 # Kensa IntelliJ Plugin
 
-![Build](https://github.com/kensa-dev/kensa-intellij-plugin/workflows/Build/badge.svg)
+![Build](https://github.com/kensa-dev/intellij-plugin/workflows/Build/badge.svg)
 
 <!-- Plugin description -->
 IntelliJ plugin for the [Kensa](https://github.com/kensa-dev/kensa) testing framework.
@@ -30,5 +30,5 @@ Kensa must be configured in your project. See the [Kensa documentation](https://
 
 - Manually:
 
-  Download the [latest release](https://github.com/kensa-dev/kensa-intellij-plugin/releases/latest) and install it using
+  Download the [latest release](https://github.com/kensa-dev/intellij-plugin/releases/latest) and install it using
   <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>⚙️</kbd> > <kbd>Install plugin from disk...</kbd>

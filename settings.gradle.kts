@@ -1,6 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
-rootProject.name = "kensa-intellij-plugin"
+rootProject.name = "intellij-plugin"
 
 pluginManagement {
     plugins {
