@@ -4,16 +4,19 @@ import com.intellij.execution.testframework.sm.runner.SMTestProxy
 import com.intellij.execution.testframework.sm.runner.SMTestProxy.SMRootTestProxy
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.disposableFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import dev.kensa.plugin.intellij.execution.KensaRunTabRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.lang.reflect.Modifier
 import javax.swing.JLabel
 
 @TestApplication
@@ -168,5 +171,17 @@ class KensaTestRunListenerTest {
 
         assertNull(results.getMethodStatus("com.example.GradleRun", "doStuff"))
         assertNull(results.getMethodStatus("com.example.NgRun", "ngThing"))
+    }
+
+    @Test
+    fun `exposes a public single-arg Project constructor for platform listener instantiation`() {
+        // The IntelliJ platform's ProjectImpl.findConstructorAndInstantiateClass requires
+        // one of: (), (Project), (CoroutineScope), (Project, CoroutineScope).
+        // Without @JvmOverloads on the primary constructor, Kotlin's default-value param
+        // does not emit a (Project) bytecode-level constructor and the platform fails to
+        // instantiate this lazy listener on build 261+ (IntelliJ 2026.1).
+        val ctor = KensaTestRunListener::class.java.getDeclaredConstructor(Project::class.java)
+        assertNotNull(ctor)
+        assertTrue(Modifier.isPublic(ctor.modifiers), "constructor must be public for platform reflection")
     }
 }

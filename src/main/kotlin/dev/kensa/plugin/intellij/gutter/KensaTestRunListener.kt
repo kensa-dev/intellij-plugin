@@ -19,7 +19,7 @@ import dev.kensa.plugin.intellij.settings.KensaEngagementService
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
 
-class KensaTestRunListener(
+class KensaTestRunListener @JvmOverloads constructor(
     private val project: Project,
     private val isKensaTestClass: (String) -> Boolean = { fqn -> defaultIsKensaTestClass(project, fqn) },
 ) : SMTRunnerEventsAdapter() {
