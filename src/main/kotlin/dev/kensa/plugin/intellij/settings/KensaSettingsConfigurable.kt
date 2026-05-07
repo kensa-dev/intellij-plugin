@@ -10,6 +10,8 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.rows
+import dev.kensa.plugin.intellij.KensaBundle
+import dev.kensa.plugin.intellij.agentskills.InstallKensaAgentSkillsAction
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import java.net.URI
@@ -42,6 +44,14 @@ class KensaSettingsConfigurable(private val project: Project) : BoundConfigurabl
                         setter = { project.service<KensaSettings>().state.showGutterIcons = it }
                     )
                     .comment("Adds a clickable icon in the editor gutter to open Kensa reports. Requires reopening the file.")
+            }
+        }
+        group("AI Agent Skills") {
+            row {
+                button(KensaBundle.message("agentSkills.settings.button")) {
+                    InstallKensaAgentSkillsAction.runInstall(project)
+                }
+                    .comment(KensaBundle.message("agentSkills.settings.description"))
             }
         }
         group("CI Report Integration") {

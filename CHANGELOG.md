@@ -3,6 +3,9 @@
 # Kensa IntelliJ Plugin Changelog
 
 ## [Unreleased]
+### Added
+- Tools → "Install Kensa Agent Skills…" action (also surfaced in Settings → Tools → Kensa) that writes the `kensa-development` AI skill into a project. Targets: GitHub Copilot (path-scoped or always-loaded), JetBrains Junie, Cursor, and Claude Code. Skill files are bundled with the plugin and pinned to the Kensa version in `version.txt` (sourced from [`kensa-dev/agent-skills`](https://github.com/kensa-dev/agent-skills)).
+
 ### Fixed
 - Possible fixes for unreliable display of test runner icon & Kensa Report bubble.
 

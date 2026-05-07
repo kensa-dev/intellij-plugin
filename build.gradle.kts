@@ -1,6 +1,8 @@
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import java.io.File
+import java.net.URI
 
 plugins {
     id("java") // Java support
@@ -124,6 +126,57 @@ kover {
     }
 }
 
+// Bundle the kensa-development agent skill files into the plugin jar so the
+// "Install Kensa Agent Skills" action can write them into a user's project.
+// The skill ref defaults to the Kensa version pinned in ./version.txt; override
+// with -PkensaSkillsRef=<tag> or -PkensaSkillsLocalPath=<dir> for development.
+val kensaSkillsRef = providers.gradleProperty("kensaSkillsRef")
+    .orElse(providers.fileContents(layout.projectDirectory.file("version.txt")).asText.map { it.trim() })
+val kensaSkillsLocalPath = providers.gradleProperty("kensaSkillsLocalPath").orNull
+val kensaSkillsOutputDir = layout.buildDirectory.dir("generated-resources/agent-skills/skills/kensa-development")
+val kensaSkillsRelativePaths = listOf(
+    "SKILL.md",
+    "references/captured-outputs.md",
+    "references/fixtures.md",
+    "references/interactions.md",
+    "references/rendered-value.md",
+    "references/setup-steps.md",
+)
+
+val fetchKensaSkills by tasks.registering {
+    inputs.property("ref", kensaSkillsRef)
+    inputs.property("localPath", kensaSkillsLocalPath ?: "")
+    outputs.dir(kensaSkillsOutputDir)
+    val refValue = kensaSkillsRef
+    val localPath = kensaSkillsLocalPath
+    val outDirProvider = kensaSkillsOutputDir
+    val relativePaths = kensaSkillsRelativePaths
+    doLast {
+        val outDir = outDirProvider.get().asFile
+        outDir.deleteRecursively()
+        outDir.mkdirs()
+        File(outDir, "references").mkdirs()
+        if (localPath != null) {
+            val sourceRoot = File(localPath, "plugins/kensa/skills/kensa-development")
+            require(sourceRoot.isDirectory) { "kensaSkillsLocalPath does not contain plugins/kensa/skills/kensa-development: $localPath" }
+            relativePaths.forEach { relative ->
+                val source = File(sourceRoot, relative)
+                require(source.isFile) { "Skill file missing: ${source.absolutePath}" }
+                source.copyTo(File(outDir, relative), overwrite = true)
+            }
+        } else {
+            val ref = refValue.get()
+            val baseUrl = "https://raw.githubusercontent.com/kensa-dev/agent-skills/$ref/plugins/kensa/skills/kensa-development"
+            relativePaths.forEach { relative ->
+                val text = URI("$baseUrl/$relative").toURL().readText()
+                File(outDir, relative).writeText(text)
+            }
+        }
+    }
+}
+
+sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("generated-resources/agent-skills"))
+
 tasks {
     wrapper {
         gradleVersion = providers.gradleProperty("gradleVersion").get()
@@ -131,6 +184,10 @@ tasks {
 
     test {
         useJUnitPlatform()
+    }
+
+    processResources {
+        dependsOn(fetchKensaSkills)
     }
 
     publishPlugin {
