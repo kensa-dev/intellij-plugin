@@ -50,7 +50,9 @@ class KensaTestRunListener @JvmOverloads constructor(
     }
 
     override fun onTestingFinished(testsRoot: SMRootTestProxy) {
-        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY) ?: return
+        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY)
+            ?: RunContentManager.getInstance(project).selectedContent
+            ?: return
         val registry = project.service<KensaRunTabRegistry>()
         // Only refresh + notify if this run actually exercised a Kensa-derived test class.
         if (registry.classesFor(descriptor).isEmpty()) return
@@ -83,7 +85,15 @@ class KensaTestRunListener @JvmOverloads constructor(
     private fun SMTestProxy.rootDescriptor(): RunContentDescriptor? {
         var node: SMTestProxy? = this
         while (node != null) {
-            if (node is SMRootTestProxy) return node.getUserData(DESCRIPTOR_KEY)
+            if (node is SMRootTestProxy) {
+                node.getUserData(DESCRIPTOR_KEY)?.let { return it }
+                // onTestingStarted may fire before the test run tab becomes the selected
+                // content (e.g. Gradle-delegated runs spend their first phase in the Build
+                // window). Lazy-capture here so later events can still tag the descriptor.
+                val current = RunContentManager.getInstance(project).selectedContent ?: return null
+                node.putUserData(DESCRIPTOR_KEY, current)
+                return current
+            }
             node = node.parent
         }
         return null

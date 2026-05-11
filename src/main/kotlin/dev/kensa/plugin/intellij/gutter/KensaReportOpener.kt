@@ -81,17 +81,44 @@ fun isKensaTest(uElement: UElement, project: Project): Boolean {
 }
 
 fun localReportPath(project: Project, classFqn: String): String? =
-    project.service<KensaTestResultsService>().getIndexPath(classFqn)
+    localReportPath(project, classFqn, null)
+
+fun localReportPath(project: Project, classFqn: String, fileSourceId: String?): String? =
+    project.service<KensaTestResultsService>().getIndexEntry(classFqn, fileSourceId)
+        ?.indexHtmlPath
         ?.takeIf { java.io.File(it).exists() }
 
 fun ciUrl(project: Project, classFqn: String, methodName: String?): String? =
     project.service<KensaSettings>().resolveUrl(project, classFqn, methodName)
 
+fun buildKensaRoute(classFqn: String, methodName: String?, sourceId: String?): String = buildString {
+    append("#/test/")
+    if (!sourceId.isNullOrBlank()) {
+        append(URLEncoder.encode(sourceId, UTF_8))
+        append("::")
+    }
+    append(URLEncoder.encode(classFqn, UTF_8))
+    if (!methodName.isNullOrBlank()) {
+        append("?method=")
+        append(URLEncoder.encode(methodName, UTF_8))
+    }
+}
+
 object KensaReportOpener {
 
     fun openLocal(mouseEvent: MouseEvent?, project: Project, classFqn: String, methodName: String?) {
-        val path = localReportPath(project, classFqn)
-        if (path == null) {
+        openLocal(mouseEvent, project, classFqn, methodName, fileSourceId = null)
+    }
+
+    fun openLocal(
+        mouseEvent: MouseEvent?,
+        project: Project,
+        classFqn: String,
+        methodName: String?,
+        fileSourceId: String?,
+    ) {
+        val entry = project.service<KensaTestResultsService>().getIndexEntry(classFqn, fileSourceId)
+        if (entry == null) {
             Messages.showInfoMessage(
                 project,
                 "No local Kensa report found.\nRun the tests first.",
@@ -99,7 +126,15 @@ object KensaReportOpener {
             )
             return
         }
-        openLocalBrowser(project, path, classFqn, methodName)
+        if (!java.io.File(entry.indexHtmlPath).exists()) {
+            val message = if (entry.sourceId != null)
+                "Kensa site shell not found at ${entry.indexHtmlPath}.\nRun ./gradlew assembleKensaSite to assemble the report shell."
+            else
+                "Kensa report shell not found at ${entry.indexHtmlPath}."
+            Messages.showWarningDialog(project, message, "Kensa")
+            return
+        }
+        openLocalBrowser(project, entry.indexHtmlPath, classFqn, methodName, entry.sourceId)
     }
 
     fun openCi(project: Project, classFqn: String, methodName: String?) {
@@ -108,15 +143,6 @@ object KensaReportOpener {
             BrowserLauncher.instance.browse(url, null, project)
         } catch (ex: Exception) {
             thisLogger().error(ex)
-        }
-    }
-
-    private fun buildRoute(classFqn: String, methodName: String?): String = buildString {
-        append("#/test/")
-        append(URLEncoder.encode(classFqn, UTF_8))
-        if (!methodName.isNullOrBlank()) {
-            append("?method=")
-            append(URLEncoder.encode(methodName, UTF_8))
         }
     }
 
@@ -136,7 +162,13 @@ object KensaReportOpener {
         }
     }
 
-    private fun openLocalBrowser(project: Project, indexPath: String, classFqn: String, methodName: String?) {
+    private fun openLocalBrowser(
+        project: Project,
+        indexPath: String,
+        classFqn: String,
+        methodName: String?,
+        sourceId: String?,
+    ) {
         val vFile = LocalFileSystem.getInstance().findFileByPath(indexPath) ?: return
         val psiFile = ApplicationManager.getApplication()
             .runReadAction(Computable { PsiManager.getInstance(project).findFile(vFile) }) ?: return
@@ -150,7 +182,7 @@ object KensaReportOpener {
                 .getUrlsToOpen(request, false)
                 .firstOrNull()?.toExternalForm() ?: return
 
-            val finalUrl = baseUrl.substringBefore('#') + buildRoute(classFqn, methodName)
+            val finalUrl = baseUrl.substringBefore('#') + buildKensaRoute(classFqn, methodName, sourceId)
             BrowserLauncher.instance.browse(finalUrl, null, project)
         } catch (ex: Exception) {
             thisLogger().error(ex)

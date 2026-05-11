@@ -14,6 +14,14 @@ fun interface KensaResultsListener {
     fun resultsUpdated(indexHtmlPath: String?)
 }
 
+data class IndexEntry(
+    val indexHtmlPath: String,
+    val sourceId: String?,
+    val bundleDir: String,
+)
+
+data class ResultKey(val classFqn: String, val sourceId: String?)
+
 @Service(PROJECT)
 class KensaTestResultsService(private val project: Project) {
 
@@ -22,9 +30,11 @@ class KensaTestResultsService(private val project: Project) {
             Topic.create("Kensa Results", KensaResultsListener::class.java)
     }
 
-    private val methodResults = ConcurrentHashMap<String, TestStatus>()
-    private val classResults = ConcurrentHashMap<String, TestStatus>()
-    private val classIndexPaths = ConcurrentHashMap<String, String>()
+    private data class MethodKey(val classFqn: String, val methodName: String, val sourceId: String?)
+
+    private val methodResults = ConcurrentHashMap<MethodKey, TestStatus>()
+    private val classResults = ConcurrentHashMap<ResultKey, TestStatus>()
+    private val indexEntries = ConcurrentHashMap<ResultKey, IndexEntry>()
     private val indexPathUpdatedAt = ConcurrentHashMap<String, Long>()
 
     @Volatile
@@ -36,22 +46,63 @@ class KensaTestResultsService(private val project: Project) {
     }
 
     fun getMethodStatus(classFqn: String, methodName: String): TestStatus? =
-        methodResults["$classFqn#$methodName"]
+        latestMethodEntry(classFqn, methodName)
 
-    fun getClassStatus(classFqn: String): TestStatus? =
-        classResults[classFqn]
+    fun getMethodStatus(classFqn: String, methodName: String, fileSourceId: String?): TestStatus? {
+        if (fileSourceId == null) return getMethodStatus(classFqn, methodName)
+        methodResults[MethodKey(classFqn, methodName, fileSourceId)]?.let { return it }
+        return methodResults[MethodKey(classFqn, methodName, null)]
+    }
 
-    fun getIndexPath(classFqn: String): String? =
-        classIndexPaths[classFqn]
+    fun getClassStatus(classFqn: String): TestStatus? = latestClassEntry(classFqn)
 
-    fun allIndexPaths(): Set<String> = classIndexPaths.values.toSet()
+    fun getClassStatus(classFqn: String, fileSourceId: String?): TestStatus? {
+        if (fileSourceId == null) return getClassStatus(classFqn)
+        classResults[ResultKey(classFqn, fileSourceId)]?.let { return it }
+        return classResults[ResultKey(classFqn, null)]
+    }
+
+    fun getIndexPath(classFqn: String): String? = latestIndexEntry(classFqn)?.indexHtmlPath
+
+    fun getIndexEntry(classFqn: String, fileSourceId: String?): IndexEntry? {
+        if (fileSourceId == null) return latestIndexEntry(classFqn)
+        indexEntries[ResultKey(classFqn, fileSourceId)]?.let { return it }
+        return indexEntries[ResultKey(classFqn, null)]
+    }
+
+    private fun latestIndexEntry(classFqn: String): IndexEntry? =
+        indexEntries.entries
+            .filter { it.key.classFqn == classFqn }
+            .maxByOrNull { indexPathUpdatedAt[it.value.indexHtmlPath] ?: 0L }
+            ?.value
+
+    private fun latestClassEntry(classFqn: String): TestStatus? =
+        classResults.entries
+            .filter { it.key.classFqn == classFqn }
+            .maxByOrNull {
+                val path = indexEntries[it.key]?.indexHtmlPath ?: return@maxByOrNull 0L
+                indexPathUpdatedAt[path] ?: 0L
+            }
+            ?.value
+
+    private fun latestMethodEntry(classFqn: String, methodName: String): TestStatus? =
+        methodResults.entries
+            .filter { it.key.classFqn == classFqn && it.key.methodName == methodName }
+            .maxByOrNull {
+                val path = indexEntries[ResultKey(it.key.classFqn, it.key.sourceId)]?.indexHtmlPath
+                    ?: return@maxByOrNull 0L
+                indexPathUpdatedAt[path] ?: 0L
+            }
+            ?.value
+
+    fun allIndexPaths(): Set<String> = indexEntries.values.map { it.indexHtmlPath }.toSet()
 
     fun indexPathsByRecency(): List<String> =
         indexPathUpdatedAt.entries
             .sortedByDescending { it.value }
             .map { it.key }
 
-    fun snapshot(): CountSnapshot = snapshotFor(classResults.keys)
+    fun snapshot(): CountSnapshot = snapshotFor(classResults.keys.map { it.classFqn }.distinct())
 
     fun snapshotForIndex(indexHtmlPath: String): CountSnapshot =
         snapshotFor(classesForIndex(indexHtmlPath))
@@ -61,7 +112,7 @@ class KensaTestResultsService(private val project: Project) {
         for (classFqn in classFqns) {
             val methods = methodsForClass(classFqn)
             if (methods.isEmpty()) {
-                when (classResults[classFqn]) {
+                when (getClassStatus(classFqn)) {
                     TestStatus.PASSED -> passed++
                     TestStatus.FAILED -> failed++
                     TestStatus.IGNORED -> ignored++
@@ -78,35 +129,51 @@ class KensaTestResultsService(private val project: Project) {
         return CountSnapshot(passed, failed, ignored)
     }
 
-fun classesForIndex(indexHtmlPath: String): List<String> =
-        classIndexPaths.entries
-            .filter { it.value == indexHtmlPath }
-            .map { it.key }
+    fun classesForIndex(indexHtmlPath: String): List<String> =
+        indexEntries.entries
+            .filter { it.value.indexHtmlPath == indexHtmlPath }
+            .map { it.key.classFqn }
+            .distinct()
             .sorted()
 
     fun methodsForClass(classFqn: String): Map<String, TestStatus> =
         methodResults.entries
-            .filter { it.key.startsWith("$classFqn#") }
-            .associate { it.key.removePrefix("$classFqn#") to it.value }
+            .filter { it.key.classFqn == classFqn }
+            .associate { it.key.methodName to it.value }
 
     fun clearForIndexHtml(indexHtmlPath: String) {
-        val staleClasses = classIndexPaths.entries
-            .filter { it.value == indexHtmlPath }
+        clearForBundle(indexHtmlPath, sourceId = null, sourceMatchesAny = true)
+    }
+
+    fun clearForBundle(indexHtmlPath: String, sourceId: String?) {
+        clearForBundle(indexHtmlPath, sourceId, sourceMatchesAny = false)
+    }
+
+    private fun clearForBundle(indexHtmlPath: String, sourceId: String?, sourceMatchesAny: Boolean) {
+        val staleKeys = indexEntries.entries
+            .filter {
+                it.value.indexHtmlPath == indexHtmlPath &&
+                    (sourceMatchesAny || it.key.sourceId == sourceId)
+            }
             .map { it.key }
-        staleClasses.forEach { classFqn ->
-            classResults.remove(classFqn)
-            classIndexPaths.remove(classFqn)
-            methodResults.keys.removeIf { it.startsWith("$classFqn#") }
+        staleKeys.forEach { key ->
+            classResults.remove(key)
+            indexEntries.remove(key)
+            methodResults.keys.removeIf { it.classFqn == key.classFqn && it.sourceId == key.sourceId }
         }
-        if (classIndexPaths.values.none { it == indexHtmlPath }) {
+        if (indexEntries.values.none { it.indexHtmlPath == indexHtmlPath }) {
             indexPathUpdatedAt.remove(indexHtmlPath)
         }
     }
 
     fun pruneMissingFiles() {
-        val stale = classIndexPaths.values.toSet().filter { !java.io.File(it).exists() }
-        if (stale.isEmpty()) return
-        stale.forEach { clearForIndexHtml(it) }
+        val staleByPath = indexEntries.values
+            .filter { entry ->
+                !java.io.File(entry.indexHtmlPath).exists() || !java.io.File(entry.bundleDir).exists()
+            }
+            .toSet()
+        if (staleByPath.isEmpty()) return
+        staleByPath.forEach { entry -> clearForBundle(entry.indexHtmlPath, entry.sourceId) }
         if (latestIndexPath?.let { !java.io.File(it).exists() } == true) {
             latestIndexPath = indexPathsByRecency().firstOrNull()
         }
@@ -117,31 +184,40 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
         classFqn: String,
         classStatus: TestStatus?,
         indexHtmlPath: String,
-        methodStatuses: Map<String, TestStatus>
+        methodStatuses: Map<String, TestStatus>,
+    ) = updateFromIndex(classFqn, sourceId = null, classStatus, indexHtmlPath, indexHtmlPath.parentDirOrSelf(), methodStatuses)
+
+    fun updateFromIndex(
+        classFqn: String,
+        sourceId: String?,
+        classStatus: TestStatus?,
+        indexHtmlPath: String,
+        bundleDir: String,
+        methodStatuses: Map<String, TestStatus>,
     ) {
+        val key = ResultKey(classFqn, sourceId)
         val effectiveClassStatus = classStatus
             ?: if (methodStatuses.values.any { it == TestStatus.FAILED }) TestStatus.FAILED
             else if (methodStatuses.values.any { it == TestStatus.PASSED }) TestStatus.PASSED
             else if (methodStatuses.values.isNotEmpty()) TestStatus.IGNORED
             else null
-        if (effectiveClassStatus != null) classResults[classFqn] = effectiveClassStatus
-        classIndexPaths[classFqn] = indexHtmlPath
+        if (effectiveClassStatus != null) classResults[key] = effectiveClassStatus
+        indexEntries[key] = IndexEntry(indexHtmlPath, sourceId, bundleDir)
         indexPathUpdatedAt[indexHtmlPath] = System.currentTimeMillis()
         latestIndexPath = indexHtmlPath
         methodStatuses.forEach { (method, status) ->
-            methodResults["$classFqn#$method"] = status
+            methodResults[MethodKey(classFqn, method, sourceId)] = status
         }
         refreshMarkers(indexHtmlPath)
     }
 
-    // Called by SMTRunnerEventsListener for real-time updates during a run
     fun updateMethod(classFqn: String, methodName: String, status: TestStatus) {
-        methodResults["$classFqn#$methodName"] = status
+        methodResults[MethodKey(classFqn, methodName, null)] = status
         refreshMarkers()
     }
 
     fun updateClass(classFqn: String, status: TestStatus) {
-        classResults[classFqn] = status
+        classResults[ResultKey(classFqn, null)] = status
         refreshMarkers()
     }
 
@@ -154,3 +230,5 @@ fun classesForIndex(indexHtmlPath: String): List<String> =
         }
     }
 }
+
+private fun String.parentDirOrSelf(): String = java.io.File(this).parentFile?.absolutePath ?: this

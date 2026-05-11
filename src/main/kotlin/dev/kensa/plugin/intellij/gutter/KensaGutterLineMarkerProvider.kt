@@ -20,8 +20,9 @@ class KensaGutterLineMarkerProvider : LineMarkerProvider {
         if (!element.project.service<KensaSettings>().state.showGutterIcons) return null
 
         val target = resolveKensaTarget(element) ?: return null
-        if (localReportPath(element.project, target.classFqn) == null) return null
-        val icon = iconFor(element.project, target.classFqn, target.methodName) ?: return null
+        val fileSourceId = KensaSourceSetResolver.resolve(element)
+        if (localReportPath(element.project, target.classFqn, fileSourceId) == null) return null
+        val icon = iconFor(element.project, target.classFqn, target.methodName, fileSourceId) ?: return null
 
         return LineMarkerInfo(
             element,
@@ -29,17 +30,17 @@ class KensaGutterLineMarkerProvider : LineMarkerProvider {
             icon,
             { "Open Kensa report" },
             { mouseEvent, psiElement ->
-                KensaReportOpener.openLocal(mouseEvent, psiElement.project, target.classFqn, target.methodName)
+                KensaReportOpener.openLocal(mouseEvent, psiElement.project, target.classFqn, target.methodName, fileSourceId)
             },
             GutterIconRenderer.Alignment.RIGHT,
             { "Open Kensa report" }
         )
     }
 
-    private fun iconFor(project: Project, classFqn: String, methodName: String?): Icon? {
+    private fun iconFor(project: Project, classFqn: String, methodName: String?, fileSourceId: String?): Icon? {
         val results = project.service<KensaTestResultsService>()
-        val status = if (methodName != null) results.getMethodStatus(classFqn, methodName)
-                     else results.getClassStatus(classFqn)
+        val status = if (methodName != null) results.getMethodStatus(classFqn, methodName, fileSourceId)
+                     else results.getClassStatus(classFqn, fileSourceId)
         return when (status) {
             TestStatus.PASSED  -> iconPass
             TestStatus.FAILED  -> iconFail

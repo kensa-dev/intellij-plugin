@@ -32,7 +32,6 @@ import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 class KensaOutputFileWatcherStartupActivity : ProjectActivity {
 
@@ -42,8 +41,8 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
         val basePath = project.basePath ?: return
 
         val startupComplete = AtomicBoolean(false)
-        val lastNotifiedAt = AtomicLong(0)
-        val debounceMs = 3000L
+        val lastNotifiedByPath = ConcurrentHashMap<String, Long>()
+        val sameReportDebounceMs = 60_000L
         val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
 
         fun loadIfNewer(file: File) {
@@ -59,7 +58,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
             if (project.isDisposed) return
             val outputDir = project.service<KensaSettings>().effectiveOutputDirName
             File(basePath).walkTopDown()
-                .filter { it.name == "indices.json" && it.parentFile?.name == outputDir }
+                .filter { it.name == "indices.json" && KensaIndexLoader.isKensaIndicesJson(it, outputDir) }
                 .forEach(::loadIfNewer)
         }
 
@@ -72,9 +71,10 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 if (!startupComplete.get()) return@KensaResultsListener
 
                 val now = System.currentTimeMillis()
-                val last = lastNotifiedAt.get()
-                if (now - last < debounceMs) return@KensaResultsListener
-                if (!lastNotifiedAt.compareAndSet(last, now)) return@KensaResultsListener
+                val claimed = lastNotifiedByPath.merge(indexHtmlPath, now) { previous, current ->
+                    if (current - previous < sameReportDebounceMs) previous else current
+                }
+                if (claimed != now) return@KensaResultsListener
 
                 log.debug("Kensa output detected: $indexHtmlPath")
 
@@ -121,10 +121,12 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 events.forEach { event ->
                     if ((event is VFileContentChangeEvent || event is VFileCreateEvent) &&
                         event.path.startsWith(basePath) &&
-                        event.path.contains("/$outputDir/") &&
                         event.path.endsWith("/indices.json")
                     ) {
-                        loadIfNewer(File(event.path))
+                        val file = File(event.path)
+                        if (KensaIndexLoader.isKensaIndicesJson(file, outputDir)) {
+                            loadIfNewer(file)
+                        }
                     }
                 }
             }

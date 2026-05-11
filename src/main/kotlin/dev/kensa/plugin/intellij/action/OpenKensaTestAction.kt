@@ -20,9 +20,9 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.InheritanceUtil.isInheritorOrSelf
 import com.intellij.psi.util.PsiModificationTracker
 import dev.kensa.plugin.intellij.action.OpenKensaTestAction.HierarchyCache.isKensaTest
+import dev.kensa.plugin.intellij.gutter.KensaSourceSetResolver
 import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets.UTF_8
+import dev.kensa.plugin.intellij.gutter.buildKensaRoute
 import java.util.concurrent.ConcurrentHashMap
 
 class OpenKensaTestAction : AnAction() {
@@ -93,7 +93,8 @@ class OpenKensaTestAction : AnAction() {
             return
         }
 
-        val indexPath = project.service<KensaTestResultsService>().getIndexPath(classFqn) ?: run {
+        val sourceId = KensaSourceSetResolver.resolveForClass(project, classFqn)
+        val entry = project.service<KensaTestResultsService>().getIndexEntry(classFqn, sourceId) ?: run {
             Messages.showInfoMessage(
                 project,
                 "No Kensa report found for $classFqn.\nRun tests first to generate a report.",
@@ -101,9 +102,14 @@ class OpenKensaTestAction : AnAction() {
             )
             return
         }
+        val indexPath = entry.indexHtmlPath
 
         val psiFile = indexPath.asPsiFileIn(project) ?: run {
-            Messages.showInfoMessage(project, "Kensa index file not found:\n$indexPath", "Kensa")
+            val message = if (entry.sourceId != null)
+                "Kensa site shell not found at $indexPath.\nRun ./gradlew assembleKensaSite to assemble the report shell."
+            else
+                "Kensa index file not found:\n$indexPath"
+            Messages.showInfoMessage(project, message, "Kensa")
             return
         }
 
@@ -120,16 +126,7 @@ class OpenKensaTestAction : AnAction() {
             return
         }
 
-        val route = buildString {
-            append("#/test/")
-            append(URLEncoder.encode(classFqn, UTF_8))
-            if (!methodName.isNullOrBlank()) {
-                append("?method=")
-                append(URLEncoder.encode(methodName, UTF_8))
-            }
-        }
-
-        val finalUrl = baseUrl.substringBefore('#') + route
+        val finalUrl = baseUrl.substringBefore('#') + buildKensaRoute(classFqn, methodName, entry.sourceId)
 
         try {
             BrowserLauncher.instance.browse(finalUrl, null, project)

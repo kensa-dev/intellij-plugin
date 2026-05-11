@@ -8,36 +8,70 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
 
+const val KENSA_SITE_DIR_NAME = "kensa-site"
+
 object KensaIndexLoader {
 
     private val gson = Gson()
     private val log = thisLogger()
 
     fun loadFromFile(project: Project, indicesJson: VirtualFile) {
-        val parentPath = indicesJson.parent?.path ?: return
+        val classification = classify(File(indicesJson.path)) ?: return
         val json = indicesJson.inputStream.reader().use { it.readText() }
-        loadJson(project, parentPath, json, indicesJson.path)
+        loadJson(project, classification, json, indicesJson.path)
     }
 
     fun loadFromFile(project: Project, indicesJson: File) {
-        val parentPath = indicesJson.parentFile?.absolutePath ?: return
+        val classification = classify(indicesJson) ?: return
         val json = indicesJson.readText()
-        loadJson(project, parentPath, json, indicesJson.absolutePath)
+        loadJson(project, classification, json, indicesJson.absolutePath)
     }
 
     fun scan(project: Project, root: File, outputDirName: String) {
         root.walkTopDown()
-            .filter { it.name == "indices.json" && it.parentFile?.name == outputDirName }
+            .filter { it.name == "indices.json" && isKensaIndicesJson(it, outputDirName) }
             .forEach { loadFromFile(project, it) }
     }
 
-    private fun loadJson(project: Project, parentPath: String, json: String, sourceForLog: String) {
-        val indexHtmlPath = "$parentPath/index.html"
+    fun isKensaIndicesJson(indicesJson: File, outputDirName: String): Boolean =
+        classify(indicesJson, outputDirName) != null
+
+    private data class BundleClassification(
+        val indexHtmlPath: String,
+        val sourceId: String?,
+        val bundleDir: String,
+    )
+
+    private fun classify(indicesJson: File, outputDirName: String? = null): BundleClassification? {
+        val parent = indicesJson.parentFile ?: return null
+        val grandparent = parent.parentFile
+        val siteRoot = grandparent?.parentFile
+
+        if (grandparent?.name == "sources" && siteRoot?.name == KENSA_SITE_DIR_NAME) {
+            return BundleClassification(
+                indexHtmlPath = File(siteRoot, "index.html").absolutePath,
+                sourceId = parent.name,
+                bundleDir = parent.absolutePath,
+            )
+        }
+
+        if (outputDirName == null || parent.name == outputDirName) {
+            return BundleClassification(
+                indexHtmlPath = File(parent, "index.html").absolutePath,
+                sourceId = null,
+                bundleDir = parent.absolutePath,
+            )
+        }
+
+        return null
+    }
+
+    private fun loadJson(project: Project, classification: BundleClassification, json: String, sourceForLog: String) {
         try {
             val root = gson.fromJson(json, KensaIndicesRoot::class.java) ?: return
 
             val service = project.service<KensaTestResultsService>()
-            service.clearForIndexHtml(indexHtmlPath)
+            service.clearForBundle(classification.indexHtmlPath, classification.sourceId)
             root.indices?.forEach { entry ->
                 val classFqn = entry.testClass ?: return@forEach
                 val classStatus = entry.state?.toTestStatus()
@@ -50,7 +84,14 @@ object KensaIndexLoader {
                     ?.toMap()
                     ?: emptyMap()
 
-                service.updateFromIndex(classFqn, classStatus, indexHtmlPath, methodStatuses)
+                service.updateFromIndex(
+                    classFqn,
+                    classification.sourceId,
+                    classStatus,
+                    classification.indexHtmlPath,
+                    classification.bundleDir,
+                    methodStatuses,
+                )
             }
         } catch (e: Exception) {
             log.warn("Failed to parse Kensa indices.json at $sourceForLog", e)

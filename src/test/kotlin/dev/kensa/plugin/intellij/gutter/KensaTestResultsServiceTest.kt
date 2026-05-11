@@ -203,6 +203,80 @@ class KensaTestResultsServiceTest {
         assertNull(results.getClassStatus("com.example.CleanB"))
     }
 
+    @Test
+    fun `same class in two source bundles returns each via source-aware lookup`() {
+        val results = projectFixture.get().service<KensaTestResultsService>()
+        results.updateFromIndex(
+            "com.example.Multi", "uiTest", null,
+            "/site/index.html", "/site/sources/uiTest",
+            mapOf("a" to TestStatus.PASSED),
+        )
+        results.updateFromIndex(
+            "com.example.Multi", "test", null,
+            "/site/index.html", "/site/sources/test",
+            mapOf("a" to TestStatus.FAILED),
+        )
+
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Multi", "uiTest"))
+        assertEquals(TestStatus.FAILED, results.getClassStatus("com.example.Multi", "test"))
+        assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.Multi", "a", "uiTest"))
+        assertEquals(TestStatus.FAILED, results.getMethodStatus("com.example.Multi", "a", "test"))
+    }
+
+    @Test
+    fun `source-aware lookup falls back to single bundle when source has no entry`() {
+        val results = projectFixture.get().service<KensaTestResultsService>()
+        results.updateFromIndex(
+            "com.example.OnlySingle", null, null,
+            "/single/index.html", "/single",
+            mapOf("a" to TestStatus.PASSED),
+        )
+
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.OnlySingle", "uiTest"))
+        assertEquals("/single/index.html", results.getIndexEntry("com.example.OnlySingle", "uiTest")?.indexHtmlPath)
+    }
+
+    @Test
+    fun `clearForBundle removes only the targeted source`() {
+        val results = projectFixture.get().service<KensaTestResultsService>()
+        results.updateFromIndex(
+            "com.example.Targeted", "uiTest", null,
+            "/site/index.html", "/site/sources/uiTest",
+            mapOf("a" to TestStatus.PASSED),
+        )
+        results.updateFromIndex(
+            "com.example.Targeted", "test", null,
+            "/site/index.html", "/site/sources/test",
+            mapOf("a" to TestStatus.PASSED),
+        )
+
+        results.clearForBundle("/site/index.html", "uiTest")
+
+        assertNull(results.getClassStatus("com.example.Targeted", "uiTest"))
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Targeted", "test"))
+    }
+
+    @Test
+    fun `pruneMissingFiles removes entry when bundle dir is gone but shell remains`() {
+        val results = projectFixture.get().service<KensaTestResultsService>()
+        val siteRoot = Files.createTempDirectory("kensa-prune-bundle").toFile()
+        val shell = File(siteRoot, "index.html").apply { writeText("<html/>") }
+        val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+
+        results.updateFromIndex(
+            "com.example.PruneBundle", "uiTest", null,
+            shell.absolutePath, sourceBundle.absolutePath,
+            mapOf("a" to TestStatus.PASSED),
+        )
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.PruneBundle", "uiTest"))
+
+        sourceBundle.deleteRecursively()
+
+        results.pruneMissingFiles()
+
+        assertNull(results.getClassStatus("com.example.PruneBundle", "uiTest"))
+    }
+
     private fun flushEdt() = runBlocking {
         withContext(Dispatchers.EDT) {
             PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()

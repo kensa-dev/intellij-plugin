@@ -32,6 +32,12 @@ class KensaRunTabRegistry(private val project: Project) {
         return classes.firstNotNullOfOrNull { service.getIndexPath(it) }
     }
 
+    fun firstClassWithReport(descriptor: RunContentDescriptor): String? {
+        val classes = seenClasses[descriptor] ?: return null
+        val service = project.service<KensaTestResultsService>()
+        return classes.firstOrNull { service.getIndexPath(it) != null }
+    }
+
     fun classesFor(descriptor: RunContentDescriptor): Set<String> =
         seenClasses[descriptor]?.toSet() ?: emptySet()
 

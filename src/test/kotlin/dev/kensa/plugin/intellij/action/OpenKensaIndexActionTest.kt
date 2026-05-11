@@ -93,6 +93,29 @@ class OpenKensaIndexActionTest {
     }
 
     @Test
+    fun `visible for site-mode entry stored with sourceId`() {
+        val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
+        results.updateFromIndex(
+            classFqn = "com.example.SiteRouted",
+            sourceId = "uiTest",
+            classStatus = null,
+            indexHtmlPath = "/site/index.html",
+            bundleDir = "/site/sources/uiTest",
+            methodStatuses = mapOf("m" to TestStatus.PASSED),
+        )
+
+        val descriptor = newDescriptor()
+        project.service<KensaRunTabRegistry>().recordClass(descriptor, "com.example.SiteRouted")
+
+        val action = OpenKensaIndexAction()
+        val event = eventFor(action, descriptor)
+        action.update(event)
+
+        assertTrue(event.presentation.isVisible, "site-mode entry should make the toolbar action visible")
+    }
+
+    @Test
     fun `hidden when descriptor is tagged but service has no entry`() {
         val project = projectFixture.get()
         val descriptor = newDescriptor()

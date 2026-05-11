@@ -7,6 +7,7 @@ import com.intellij.testFramework.junit5.fixture.projectFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
@@ -163,6 +164,92 @@ class KensaIndexLoaderTest {
         val expectedIndexHtml = File(tempDir, "index.html").absolutePath
         val r = project.service<KensaTestResultsService>()
         assertFalse(expectedIndexHtml in r.allIndexPaths())
+    }
+
+    @Test
+    fun `loads site-mode source bundle and points at site root index html`() {
+        val project = projectFixture.get()
+        val tempParent = Files.createTempDirectory("kensa-site-mode").toFile()
+        val siteRoot = File(tempParent, "build/kensa-site").apply { mkdirs() }
+        val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+        File(sourceBundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.SiteOnly","state":"Passed",
+            "children":[{"testMethod":"runs","state":"Passed"}]}]}"""
+        )
+
+        KensaIndexLoader.scan(project, tempParent, "kensa-output")
+
+        val results = project.service<KensaTestResultsService>()
+        val entry = results.getIndexEntry("com.example.SiteOnly", "uiTest")
+            ?: error("expected entry for site source uiTest")
+        assertEquals("uiTest", entry.sourceId)
+        assertEquals(File(siteRoot, "index.html").absolutePath, entry.indexHtmlPath)
+        assertEquals(sourceBundle.absolutePath, entry.bundleDir)
+        assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.SiteOnly", "runs", "uiTest"))
+    }
+
+    @Test
+    fun `same class in two source bundles stores both entries`() {
+        val project = projectFixture.get()
+        val tempParent = Files.createTempDirectory("kensa-multi").toFile()
+        val siteRoot = File(tempParent, "build/kensa-site").apply { mkdirs() }
+        val ui = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+        val acceptance = File(siteRoot, "sources/acceptanceTest").apply { mkdirs() }
+        File(ui, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.Shared","state":"Passed",
+            "children":[{"testMethod":"x","state":"Passed"}]}]}"""
+        )
+        File(acceptance, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.Shared","state":"Failed",
+            "children":[{"testMethod":"x","state":"Failed"}]}]}"""
+        )
+
+        KensaIndexLoader.loadFromFile(project, File(ui, "indices.json"))
+        KensaIndexLoader.loadFromFile(project, File(acceptance, "indices.json"))
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Shared", "uiTest"))
+        assertEquals(TestStatus.FAILED, results.getClassStatus("com.example.Shared", "acceptanceTest"))
+        assertEquals("uiTest", results.getIndexEntry("com.example.Shared", "uiTest")?.sourceId)
+        assertEquals("acceptanceTest", results.getIndexEntry("com.example.Shared", "acceptanceTest")?.sourceId)
+    }
+
+    @Test
+    fun `recognises site layout without manifest on disk`() {
+        val project = projectFixture.get()
+        val tempParent = Files.createTempDirectory("kensa-no-manifest").toFile()
+        val siteRoot = File(tempParent, "build/kensa-site").apply { mkdirs() }
+        val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+        File(sourceBundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.NoManifest","state":"Passed",
+            "children":[]}]}"""
+        )
+
+        KensaIndexLoader.loadFromFile(project, File(sourceBundle, "indices.json"))
+
+        val results = project.service<KensaTestResultsService>()
+        val entry = results.getIndexEntry("com.example.NoManifest", "uiTest")
+            ?: error("expected site-source entry even without manifest.json on disk")
+        assertEquals("uiTest", entry.sourceId)
+        assertEquals(File(siteRoot, "index.html").absolutePath, entry.indexHtmlPath)
+    }
+
+    @Test
+    fun `isKensaIndicesJson recognises both layouts`() {
+        val singleRoot = Files.createTempDirectory("kensa-iso-single").toFile()
+        val singleBundle = File(singleRoot, "build/kensa-output").apply { mkdirs() }
+        val singleIndices = File(singleBundle, "indices.json").apply { writeText("{}") }
+
+        val siteParent = Files.createTempDirectory("kensa-iso-site").toFile()
+        val siteRoot = File(siteParent, "build/kensa-site").apply { mkdirs() }
+        val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+        val siteIndices = File(sourceBundle, "indices.json").apply { writeText("{}") }
+
+        val unrelated = File(Files.createTempDirectory("kensa-iso-other").toFile(), "indices.json").apply { writeText("{}") }
+
+        assertTrue(KensaIndexLoader.isKensaIndicesJson(singleIndices, "kensa-output"))
+        assertTrue(KensaIndexLoader.isKensaIndicesJson(siteIndices, "kensa-output"))
+        assertFalse(KensaIndexLoader.isKensaIndicesJson(unrelated, "kensa-output"))
     }
 
     @Test

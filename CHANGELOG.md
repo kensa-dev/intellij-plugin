@@ -4,11 +4,19 @@
 
 ## [Unreleased]
 ### Added
+- Site-mode discovery: gutter icons and the test-tree context menu now recognise Kensa 0.8 site bundles (`build/kensa-site/sources/<id>/`) in addition to the default `kensa-output/` layout. The plugin walks for `indices.json` whose grandparent is `sources/` and whose great-grandparent has a `manifest.json`.
+- Multi-source routing: when a test class lives in a Gradle source set whose name matches a Kensa source id (the default mapping), gutter clicks open the site shell with a `<sourceId>::<class>` route, so the report sidebar lands on the correct source. Same class run in two source sets stays separated; the gutter icon for a file in `src/uiTest/...` reflects the `uiTest` source's status.
 - Tools → "Install Kensa Agent Skills…" action (also surfaced in Settings → Tools → Kensa) that writes the `kensa-development` AI skill into a project. Targets: GitHub Copilot (path-scoped or always-loaded), JetBrains Junie, Cursor, and Claude Code. Skill files are bundled with the plugin and pinned to the Kensa version in `version.txt` (sourced from [`kensa-dev/agent-skills`](https://github.com/kensa-dev/agent-skills)).
 
 ### Fixed
 - `KensaTestRunListener` failed to instantiate on IntelliJ 2026.1+ (build 261+) with `Cannot find suitable constructor`, breaking gutter status updates and the engagement notification on that build line. Added `@JvmOverloads` so the platform's stricter constructor lookup finds the `(Project)` overload.
 - Possible fixes for unreliable display of test runner icon & Kensa Report bubble.
+- Opening a report from a site-mode source bundle whose shell isn't on disk now produces a clear "run `./gradlew assembleKensaSite`" warning, instead of silently failing.
+- Project-view "Open Kensa Report" group now lists site-mode reports (`build/kensa-site/index.html`), not just `kensa-output/` bundles. Previously the group's children walker only matched the legacy parent name and rendered the menu disabled in site-mode projects.
+- "Kensa Report Ready" balloon no longer fires twice when a multi-sourceset site build completes. The notification debounce is now per-`index.html` over a 60s window, so the two `sources/<id>/indices.json` writes that share one site shell coalesce into a single balloon.
+- Run-tab "Open Kensa Report" toolbar icon stayed hidden after Gradle-delegated test runs. `KensaTestRunListener.onTestingStarted` was capturing the active `RunContentDescriptor` via `RunContentManager.selectedContent`, but for Gradle-delegated runs the Build tool window holds focus while Gradle ramps up — selected content is `null` (or the previous tab) at that moment, so `DESCRIPTOR_KEY` never gets written, `rootDescriptor()` returns null on every later event, and `KensaRunTabRegistry.seenClasses` stays empty for the whole session. The listener now lazy-captures: if `DESCRIPTOR_KEY` is unset when an event arrives, it reads `selectedContent` then and stores it back.
+- Clicking the run-tab toolbar icon now opens the report routed to a test from the just-completed run (using the recorded class's `sourceId`), matching the gutter / test-tree right-click behaviour, instead of landing on the UI's default sidebar selection.
+- Site-mode discriminator no longer requires `manifest.json` to be on disk — it matches the directory shape `…/kensa-site/sources/<id>/indices.json`, so reports load after running `:uiTest` standalone without `:assembleKensaSite`. The "open" path still surfaces the missing-shell warning when the user clicks before assembling the site.
 
 ## [0.7.1]
 ### Added

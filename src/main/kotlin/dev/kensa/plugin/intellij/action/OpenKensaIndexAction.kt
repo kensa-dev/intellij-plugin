@@ -26,7 +26,13 @@ class OpenKensaIndexAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val descriptor = resolveDescriptor(e, project) ?: return
-        val indexPath = project.service<KensaRunTabRegistry>().indexPathFor(descriptor) ?: return
+        val registry = project.service<KensaRunTabRegistry>()
+        val routedClass = registry.firstClassWithReport(descriptor)
+        if (routedClass != null) {
+            KensaReportOpener.openLocal(null, project, routedClass, methodName = null, fileSourceId = null)
+            return
+        }
+        val indexPath = registry.indexPathFor(descriptor) ?: return
         KensaReportOpener.openIndexHtml(project, indexPath)
     }
 

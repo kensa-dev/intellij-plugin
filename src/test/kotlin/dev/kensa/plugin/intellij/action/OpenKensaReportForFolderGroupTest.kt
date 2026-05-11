@@ -86,13 +86,17 @@ class OpenKensaReportForFolderGroupTest {
     }
 
     @Test
-    fun `getChildren returns one entry per discovered index html under folder`() {
+    fun `getChildren returns one entry per registered index html under folder`() {
         val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
         val tempDir = Files.createTempDirectory("kensa-folder-children").toFile()
-        File(tempDir, "moduleA/kensa-output").apply { mkdirs(); File(this, "index.html").writeText("<html/>") }
-        File(tempDir, "moduleB/kensa-output").apply { mkdirs(); File(this, "index.html").writeText("<html/>") }
-        // A nested subdir we should NOT pick up — wrong parent name.
-        File(tempDir, "moduleC/other").apply { mkdirs(); File(this, "index.html").writeText("<html/>") }
+        val a = File(tempDir, "moduleA/kensa-output").apply { mkdirs() }
+        val aIndex = File(a, "index.html").apply { writeText("<html/>") }
+        val b = File(tempDir, "moduleB/kensa-output").apply { mkdirs() }
+        val bIndex = File(b, "index.html").apply { writeText("<html/>") }
+
+        results.updateFromIndex("com.example.A", null, aIndex.absolutePath, mapOf("m" to TestStatus.PASSED))
+        results.updateFromIndex("com.example.B", null, bIndex.absolutePath, mapOf("m" to TestStatus.PASSED))
 
         val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tempDir)
             ?: error("temp dir not visible to VFS")
@@ -106,5 +110,35 @@ class OpenKensaReportForFolderGroupTest {
         val children = action.getChildren(event)
 
         assertEquals(2, children.size)
+    }
+
+    @Test
+    fun `getChildren includes site-mode shell when registered`() {
+        val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
+        val tempDir = Files.createTempDirectory("kensa-folder-site").toFile()
+        val siteRoot = File(tempDir, "module/build/kensa-site").apply { mkdirs() }
+        val siteIndex = File(siteRoot, "index.html").apply { writeText("<html/>") }
+        val uiBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+
+        results.updateFromIndex(
+            "com.example.Ui", "uiTest", null,
+            siteIndex.absolutePath, uiBundle.absolutePath,
+            mapOf("m" to TestStatus.PASSED),
+        )
+
+        val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tempDir)
+            ?: error("temp dir not visible to VFS")
+
+        val action = OpenKensaReportForFolderGroup()
+        val context = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.VIRTUAL_FILE, vDir)
+            .build()
+        val event = TestActionEvent.createTestEvent(action, context)
+
+        action.update(event)
+        assertTrue(event.presentation.isEnabledAndVisible)
+        assertEquals(1, action.getChildren(event).size)
     }
 }
