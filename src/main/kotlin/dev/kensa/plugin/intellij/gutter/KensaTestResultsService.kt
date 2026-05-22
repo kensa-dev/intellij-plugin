@@ -102,7 +102,7 @@ class KensaTestResultsService(private val project: Project) {
             .sortedByDescending { it.value }
             .map { it.key }
 
-    fun snapshot(): CountSnapshot = snapshotFor(classResults.keys.map { it.classFqn }.distinct())
+    fun snapshot(): CountSnapshot = snapshotFor(indexEntries.keys.map { it.classFqn }.distinct())
 
     fun snapshotForIndex(indexHtmlPath: String): CountSnapshot =
         snapshotFor(classesForIndex(indexHtmlPath))
@@ -208,6 +208,9 @@ class KensaTestResultsService(private val project: Project) {
         methodStatuses.forEach { (method, status) ->
             methodResults[MethodKey(classFqn, method, sourceId)] = status
         }
+    }
+
+    fun notifyIndexLoaded(indexHtmlPath: String) {
         refreshMarkers(indexHtmlPath)
     }
 

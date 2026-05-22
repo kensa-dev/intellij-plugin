@@ -30,7 +30,6 @@ import com.intellij.openapi.components.service
 import dev.kensa.plugin.intellij.gutter.KensaIndexLoader
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 class KensaOutputFileWatcherStartupActivity : ProjectActivity {
@@ -41,25 +40,13 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
         val basePath = project.basePath ?: return
 
         val startupComplete = AtomicBoolean(false)
-        val lastNotifiedByPath = ConcurrentHashMap<String, Long>()
-        val sameReportDebounceMs = 60_000L
-        val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
-
-        fun loadIfNewer(file: File) {
-            val mtime = file.lastModified()
-            val key = file.absolutePath
-            val lastLoaded = lastLoadedMtimes[key]
-            if (lastLoaded != null && mtime <= lastLoaded) return
-            lastLoadedMtimes[key] = mtime
-            KensaIndexLoader.loadFromFile(project, file)
-        }
 
         fun walkForIndices() {
             if (project.isDisposed) return
             val outputDir = project.service<KensaSettings>().effectiveOutputDirName
             File(basePath).walkTopDown()
                 .filter { it.name == "indices.json" && KensaIndexLoader.isKensaIndicesJson(it, outputDir) }
-                .forEach(::loadIfNewer)
+                .forEach { KensaIndexLoader.loadFromFile(project, it) }
         }
 
         project.messageBus.connect().subscribe(
@@ -69,12 +56,6 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
 
                 if (indexHtmlPath == null) return@KensaResultsListener
                 if (!startupComplete.get()) return@KensaResultsListener
-
-                val now = System.currentTimeMillis()
-                val claimed = lastNotifiedByPath.merge(indexHtmlPath, now) { previous, current ->
-                    if (current - previous < sameReportDebounceMs) previous else current
-                }
-                if (claimed != now) return@KensaResultsListener
 
                 log.debug("Kensa output detected: $indexHtmlPath")
 
@@ -101,7 +82,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 if (project.isDisposed) return@scheduleWithFixedDelay
                 walkForIndices()
                 project.service<KensaTestResultsService>().pruneMissingFiles()
-                lastLoadedMtimes.keys.removeIf { !File(it).exists() }
+                KensaIndexLoader.pruneLoadedMtimes { File(it).exists() }
             },
             5, 5, TimeUnit.SECONDS,
         )
@@ -125,7 +106,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                     ) {
                         val file = File(event.path)
                         if (KensaIndexLoader.isKensaIndicesJson(file, outputDir)) {
-                            loadIfNewer(file)
+                            KensaIndexLoader.loadFromFile(project, file)
                         }
                     }
                 }

@@ -245,11 +245,39 @@ class KensaIndexLoaderTest {
         val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
         val siteIndices = File(sourceBundle, "indices.json").apply { writeText("{}") }
 
+        val renamedSiteParent = Files.createTempDirectory("kensa-iso-renamed-site").toFile()
+        val renamedSiteRoot = File(renamedSiteParent, "build/kensa-output").apply { mkdirs() }
+        val renamedSourceBundle = File(renamedSiteRoot, "sources/uiTest").apply { mkdirs() }
+        val renamedSiteIndices = File(renamedSourceBundle, "indices.json").apply { writeText("{}") }
+
         val unrelated = File(Files.createTempDirectory("kensa-iso-other").toFile(), "indices.json").apply { writeText("{}") }
 
         assertTrue(KensaIndexLoader.isKensaIndicesJson(singleIndices, "kensa-output"))
         assertTrue(KensaIndexLoader.isKensaIndicesJson(siteIndices, "kensa-output"))
+        assertTrue(KensaIndexLoader.isKensaIndicesJson(renamedSiteIndices, "kensa-output"))
         assertFalse(KensaIndexLoader.isKensaIndicesJson(unrelated, "kensa-output"))
+    }
+
+    @Test
+    fun `loads site-mode bundle when site root is renamed`() {
+        val project = projectFixture.get()
+        val tempParent = Files.createTempDirectory("kensa-renamed-site").toFile()
+        val siteRoot = File(tempParent, "build/kensa-output").apply { mkdirs() }
+        val sourceBundle = File(siteRoot, "sources/uiTest").apply { mkdirs() }
+        File(sourceBundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.Renamed","state":"Passed",
+            "children":[{"testMethod":"runs","state":"Passed"}]}]}"""
+        )
+
+        KensaIndexLoader.scan(project, tempParent, "kensa-output")
+
+        val results = project.service<KensaTestResultsService>()
+        val entry = results.getIndexEntry("com.example.Renamed", "uiTest")
+            ?: error("expected entry for renamed-siteRoot source uiTest")
+        assertEquals("uiTest", entry.sourceId)
+        assertEquals(File(siteRoot, "index.html").absolutePath, entry.indexHtmlPath)
+        assertEquals(sourceBundle.absolutePath, entry.bundleDir)
+        assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.Renamed", "runs", "uiTest"))
     }
 
     @Test
@@ -268,6 +296,9 @@ class KensaIndexLoaderTest {
             ]}
             """.trimIndent()
         )
+        // Pin a deterministic mtime so the load gate ("skip if mtime unchanged") doesn't
+        // race the file system's coarse-grained timestamp resolution between the two writes.
+        indicesJson.setLastModified(1_700_000_000_000L)
         KensaIndexLoader.loadFromFile(project, indicesJson)
 
         val r = project.service<KensaTestResultsService>()
@@ -282,10 +313,69 @@ class KensaIndexLoaderTest {
             ]}
             """.trimIndent()
         )
+        indicesJson.setLastModified(1_700_000_001_000L)
         KensaIndexLoader.loadFromFile(project, indicesJson)
 
         assertEquals(TestStatus.PASSED, r.getClassStatus("com.example.Stays"))
         assertNull(r.getClassStatus("com.example.Removed"))
         assertNull(r.getMethodStatus("com.example.Removed", "b"))
+    }
+
+    @Test
+    fun `loadFromFile is a no-op when mtime has not advanced`() {
+        val project = projectFixture.get()
+        val tempDir = Files.createTempDirectory("kensa-mtime-skip").toFile()
+        val indicesJson = File(tempDir, "indices.json").apply {
+            writeText(
+                """{"indices":[{"testClass":"com.example.MtimeFresh","state":"Passed",
+                "children":[{"testMethod":"x","state":"Passed"}]}]}"""
+            )
+            setLastModified(1_700_000_100_000L)
+        }
+
+        KensaIndexLoader.loadFromFile(project, indicesJson)
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.MtimeFresh"))
+
+        // Externally clear the service; if the second load runs, the entry will reappear.
+        results.clearForIndexHtml(File(tempDir, "index.html").absolutePath)
+        assertNull(results.getClassStatus("com.example.MtimeFresh"))
+
+        // Re-write with new content but keep the same mtime. The load must be skipped.
+        indicesJson.writeText(
+            """{"indices":[{"testClass":"com.example.MtimeFresh","state":"Failed",
+            "children":[{"testMethod":"x","state":"Failed"}]}]}"""
+        )
+        indicesJson.setLastModified(1_700_000_100_000L)
+        KensaIndexLoader.loadFromFile(project, indicesJson)
+
+        assertNull(results.getClassStatus("com.example.MtimeFresh"))
+    }
+
+    @Test
+    fun `loadFromFile re-loads when mtime advances`() {
+        val project = projectFixture.get()
+        val tempDir = Files.createTempDirectory("kensa-mtime-advance").toFile()
+        val indicesJson = File(tempDir, "indices.json").apply {
+            writeText(
+                """{"indices":[{"testClass":"com.example.Advance","state":"Passed",
+                "children":[{"testMethod":"x","state":"Passed"}]}]}"""
+            )
+            setLastModified(1_700_000_200_000L)
+        }
+
+        KensaIndexLoader.loadFromFile(project, indicesJson)
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Advance"))
+
+        indicesJson.writeText(
+            """{"indices":[{"testClass":"com.example.Advance","state":"Failed",
+            "children":[{"testMethod":"x","state":"Failed"}]}]}"""
+        )
+        indicesJson.setLastModified(1_700_000_201_000L)
+        KensaIndexLoader.loadFromFile(project, indicesJson)
+
+        assertEquals(TestStatus.FAILED, results.getClassStatus("com.example.Advance"))
     }
 }

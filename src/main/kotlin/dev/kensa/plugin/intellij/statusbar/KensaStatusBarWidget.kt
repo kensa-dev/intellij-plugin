@@ -79,29 +79,26 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
             val service = project.service<KensaTestResultsService>()
             val snap = service.snapshot()
             panel.removeAll()
-            if (snap.isEmpty) {
-                panel.revalidate()
-                panel.repaint()
-                panel.isVisible = false
-                return@invokeLater
+            if (!snap.isEmpty) {
+                passedLabel.text = snap.passed.toString()
+                panel.add(passedLabel)
+                if (snap.failed > 0) {
+                    failedLabel.text = snap.failed.toString()
+                    panel.add(failedLabel)
+                }
+                if (snap.ignored > 0) {
+                    ignoredLabel.text = snap.ignored.toString()
+                    panel.add(ignoredLabel)
+                }
+                val indexCount = service.allIndexPaths().size
+                if (indexCount > 1) {
+                    multiLabel.text = "($indexCount)"
+                    panel.add(multiLabel)
+                }
+                panel.toolTipText = tooltip(service)
+            } else {
+                panel.toolTipText = null
             }
-            panel.isVisible = true
-            passedLabel.text = snap.passed.toString()
-            panel.add(passedLabel)
-            if (snap.failed > 0) {
-                failedLabel.text = snap.failed.toString()
-                panel.add(failedLabel)
-            }
-            if (snap.ignored > 0) {
-                ignoredLabel.text = snap.ignored.toString()
-                panel.add(ignoredLabel)
-            }
-            val indexCount = service.allIndexPaths().size
-            if (indexCount > 1) {
-                multiLabel.text = "($indexCount)"
-                panel.add(multiLabel)
-            }
-            panel.toolTipText = tooltip(service)
             panel.revalidate()
             panel.repaint()
             statusBar?.updateWidget(ID)

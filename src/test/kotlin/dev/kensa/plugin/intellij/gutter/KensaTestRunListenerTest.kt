@@ -55,14 +55,11 @@ class KensaTestRunListenerTest {
     }
 
     @Test
-    fun `non-Kensa class is not recorded in the registry`() {
+    fun `class without a Kensa index path leaves indexPathFor null`() {
         val project = projectFixture.get()
         val registry = project.service<KensaRunTabRegistry>()
-        val results = project.service<KensaTestResultsService>()
-        // Pre-load the service with an entry that would otherwise make indexPathFor return non-null.
-        results.updateFromIndex("com.example.Plain", null, "/p/index.html", emptyMap())
-
-        val listener = KensaTestRunListener(project, isKensaTestClass = { false })
+        // Service has no entry for this class — simulates a non-Kensa test class that ran.
+        val listener = KensaTestRunListener(project)
 
         val descriptor = newDescriptor()
         val root = SMRootTestProxy()
@@ -73,18 +70,20 @@ class KensaTestRunListenerTest {
 
         listener.onTestFinished(leaf)
 
+        // Class IS recorded (every class is recorded — the gate is now at the service layer).
+        assertTrue("com.example.Plain" in registry.classesFor(descriptor))
+        // But the action stays hidden because the service has no index for it.
         assertNull(registry.indexPathFor(descriptor))
-        assertTrue(registry.classesFor(descriptor).isEmpty())
     }
 
     @Test
-    fun `Kensa class IS recorded in the registry`() {
+    fun `class with a Kensa index path makes indexPathFor return it`() {
         val project = projectFixture.get()
         val registry = project.service<KensaRunTabRegistry>()
         val results = project.service<KensaTestResultsService>()
         results.updateFromIndex("com.example.MyKensaTest", null, "/p/index.html", emptyMap())
 
-        val listener = KensaTestRunListener(project, isKensaTestClass = { it == "com.example.MyKensaTest" })
+        val listener = KensaTestRunListener(project)
 
         val descriptor = newDescriptor()
         val root = SMRootTestProxy()
@@ -111,8 +110,10 @@ class KensaTestRunListenerTest {
             """.trimIndent()
         )
 
-        // No prior recordClass calls — descriptor was never tagged as Kensa.
-        val listener = KensaTestRunListener(project, isKensaTestClass = { false })
+        // No test events fired against this listener, so the registry has no classes for
+        // the descriptor. The scan gate (`registry.classesFor(descriptor).isEmpty()`) must
+        // still skip the project-wide walk to keep non-test descriptors cheap.
+        val listener = KensaTestRunListener(project)
         val testsRoot = SMRootTestProxy()
         val descriptor = newDescriptor()
         testsRoot.putUserData(KensaTestRunListener.DESCRIPTOR_KEY, descriptor)
@@ -136,7 +137,7 @@ class KensaTestRunListenerTest {
             """.trimIndent()
         )
 
-        val listener = KensaTestRunListener(project, isKensaTestClass = { true })
+        val listener = KensaTestRunListener(project)
 
         val descriptor = newDescriptor()
         val root = SMRootTestProxy()

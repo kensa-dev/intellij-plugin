@@ -7,22 +7,28 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
-
-const val KENSA_SITE_DIR_NAME = "kensa-site"
+import java.util.concurrent.ConcurrentHashMap
 
 object KensaIndexLoader {
 
     private val gson = Gson()
     private val log = thisLogger()
+    private val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
 
     fun loadFromFile(project: Project, indicesJson: VirtualFile) {
         val classification = classify(File(indicesJson.path)) ?: return
+        val key = indicesJson.path
+        val mtime = indicesJson.timeStamp
+        if (!shouldLoad(key, mtime)) return
         val json = indicesJson.inputStream.reader().use { it.readText() }
         loadJson(project, classification, json, indicesJson.path)
     }
 
     fun loadFromFile(project: Project, indicesJson: File) {
         val classification = classify(indicesJson) ?: return
+        val key = indicesJson.absolutePath
+        val mtime = indicesJson.lastModified()
+        if (!shouldLoad(key, mtime)) return
         val json = indicesJson.readText()
         loadJson(project, classification, json, indicesJson.absolutePath)
     }
@@ -31,6 +37,17 @@ object KensaIndexLoader {
         root.walkTopDown()
             .filter { it.name == "indices.json" && isKensaIndicesJson(it, outputDirName) }
             .forEach { loadFromFile(project, it) }
+    }
+
+    private fun shouldLoad(key: String, mtime: Long): Boolean {
+        val previous = lastLoadedMtimes[key]
+        if (previous != null && mtime <= previous) return false
+        lastLoadedMtimes[key] = mtime
+        return true
+    }
+
+    fun pruneLoadedMtimes(stillExists: (String) -> Boolean) {
+        lastLoadedMtimes.keys.removeIf { !stillExists(it) }
     }
 
     fun isKensaIndicesJson(indicesJson: File, outputDirName: String): Boolean =
@@ -47,7 +64,7 @@ object KensaIndexLoader {
         val grandparent = parent.parentFile
         val siteRoot = grandparent?.parentFile
 
-        if (grandparent?.name == "sources" && siteRoot?.name == KENSA_SITE_DIR_NAME) {
+        if (grandparent?.name == "sources" && siteRoot != null) {
             return BundleClassification(
                 indexHtmlPath = File(siteRoot, "index.html").absolutePath,
                 sourceId = parent.name,
@@ -93,6 +110,7 @@ object KensaIndexLoader {
                     methodStatuses,
                 )
             }
+            service.notifyIndexLoaded(classification.indexHtmlPath)
         } catch (e: Exception) {
             log.warn("Failed to parse Kensa indices.json at $sourceForLog", e)
         }

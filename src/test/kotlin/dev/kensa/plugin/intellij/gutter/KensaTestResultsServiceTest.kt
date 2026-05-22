@@ -141,7 +141,26 @@ class KensaTestResultsServiceTest {
     }
 
     @Test
-    fun `topic publishes index html path from update from index`() {
+    fun `update from index alone does not publish the topic`() {
+        val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
+        val captured = AtomicReference<String?>("<unset>")
+        project.messageBus.connect(disposableFixture.get()).subscribe(
+            KensaTestResultsService.KENSA_RESULTS_TOPIC,
+            KensaResultsListener { path -> captured.set(path) },
+        )
+
+        results.updateFromIndex("com.example.X", null, "/p/x/index.html", emptyMap())
+        flushEdt()
+
+        // The bulk-load notification is deferred to notifyIndexLoaded; updateFromIndex is
+        // just a write so the loader can call updateFromIndex once per class and fire the
+        // topic exactly once afterwards.
+        assertEquals("<unset>", captured.get())
+    }
+
+    @Test
+    fun `notifyIndexLoaded publishes the index html path`() {
         val project = projectFixture.get()
         val results = project.service<KensaTestResultsService>()
         val captured = AtomicReference<String?>(null)
@@ -151,9 +170,31 @@ class KensaTestResultsServiceTest {
         )
 
         results.updateFromIndex("com.example.X", null, "/p/x/index.html", emptyMap())
+        results.notifyIndexLoaded("/p/x/index.html")
         flushEdt()
 
         assertEquals("/p/x/index.html", captured.get())
+    }
+
+    @Test
+    fun `snapshot enumerates from indexEntries so classes survive unknown class status`() {
+        val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
+
+        // updateFromIndex only writes to classResults when effectiveClassStatus != null;
+        // when method statuses are known but the class-level state isn't, classResults
+        // can lag indexEntries. Snapshot must still see the methods via the indexEntries
+        // enumeration so counters reflect what loaded.
+        results.updateFromIndex(
+            "com.example.MethodsOnly",
+            null,
+            "/p/methods/index.html",
+            mapOf("a" to TestStatus.PASSED, "b" to TestStatus.PASSED),
+        )
+
+        val snap = results.snapshot()
+        assertEquals(2, snap.passed)
+        assertFalse(snap.isEmpty)
     }
 
     @Test
