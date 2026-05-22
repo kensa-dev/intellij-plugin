@@ -9,8 +9,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Iconable
 import com.intellij.psi.PsiFile
-import com.intellij.ui.SimpleListCellRenderer
-import com.intellij.util.ui.JBUI
+import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
 import javax.swing.Icon
 
 class KensaReportIntentionGroup : IntentionActionGroup<IntentionAction>(
@@ -31,13 +30,13 @@ class KensaReportIntentionGroup : IntentionActionGroup<IntentionAction>(
             invokeAction(actions.first())
             return
         }
+        val logo = IconLoader.getIcon("/icons/logo.svg", KensaReportIntentionGroup::class.java)
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(actions)
             .setTitle("Kensa Report")
-            .setRenderer(SimpleListCellRenderer.create { label, value, _ ->
-                label.text = value.text
-                label.icon = IconLoader.getIcon("/icons/logo.svg", KensaReportIntentionGroup::class.java)
-                label.border = JBUI.Borders.empty(4, 8)
+            .setRenderer(listCellRenderer {
+                icon(logo)
+                text(value.text)
             })
             .setItemChosenCallback { chosen -> invokeAction(chosen) }
             .createPopup()
