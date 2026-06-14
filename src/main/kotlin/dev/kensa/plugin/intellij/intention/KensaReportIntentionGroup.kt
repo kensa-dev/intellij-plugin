@@ -9,8 +9,9 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Iconable
 import com.intellij.psi.PsiFile
-import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
+import com.intellij.ui.SimpleListCellRenderer
 import javax.swing.Icon
+import javax.swing.JList
 
 class KensaReportIntentionGroup : IntentionActionGroup<IntentionAction>(
     listOf(KensaOpenLocalReportIntentionAction(), KensaOpenCiReportIntentionAction())
@@ -34,9 +35,11 @@ class KensaReportIntentionGroup : IntentionActionGroup<IntentionAction>(
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(actions)
             .setTitle("Kensa Report")
-            .setRenderer(listCellRenderer {
-                icon(logo)
-                text(value.text)
+            .setRenderer(object : SimpleListCellRenderer<IntentionAction>() {
+                override fun customize(list: JList<out IntentionAction>, value: IntentionAction?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                    icon = logo
+                    text = value?.text
+                }
             })
             .setItemChosenCallback { chosen -> invokeAction(chosen) }
             .createPopup()

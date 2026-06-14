@@ -1,6 +1,9 @@
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import java.io.File
 import java.net.URI
 
@@ -20,7 +23,7 @@ version = providers.gradleProperty("pluginVersion").get()
 kotlin {
     jvmToolchain(21)
     compilerOptions {
-        freeCompilerArgs.add("-Xjvm-default=all")
+        jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
     }
 }
 
@@ -103,7 +106,14 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            recommended()
+            // Verify against released IDEs only (since the supported `pluginSinceBuild`).
+            // EAP builds are excluded because their split-mode content modules can't be
+            // resolved by the verifier, producing false-positive "unresolved class" errors.
+            select {
+                types = listOf(IntelliJPlatformType.IntellijIdeaUltimate)
+                channels = listOf(ProductRelease.Channel.RELEASE)
+                sinceBuild = providers.gradleProperty("pluginSinceBuild")
+            }
         }
     }
 }

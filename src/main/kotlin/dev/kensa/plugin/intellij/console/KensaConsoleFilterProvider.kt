@@ -1,10 +1,10 @@
 package dev.kensa.plugin.intellij.console
 
+import com.intellij.CommonBundle
 import com.intellij.execution.filters.ConsoleFilterProvider
 import com.intellij.execution.filters.Filter
 import com.intellij.execution.filters.Filter.Result
 import com.intellij.execution.filters.HyperlinkInfo
-import com.intellij.ide.IdeBundle
 import com.intellij.ide.browsers.BrowserLauncher
 import com.intellij.ide.browsers.OpenInBrowserRequest
 import com.intellij.ide.browsers.WebBrowserService
@@ -70,7 +70,7 @@ class KensaOutputFilter(private val project: Project) : Filter {
                 val urls = WebBrowserService.getInstance().getUrlsToOpen(request, false)
                 BrowserLauncher.instance.browse(urls.first().toExternalForm(), null, request.project)
             } catch (ex: WebBrowserUrlProvider.BrowserException) {
-                Messages.showErrorDialog(ex.message, IdeBundle.message("browser.error"))
+                Messages.showErrorDialog(ex.message, CommonBundle.getErrorTitle())
             } catch (ex: Exception) {
                 log.error(ex)
             }
