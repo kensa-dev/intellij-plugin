@@ -3,6 +3,12 @@
 # Kensa IntelliJ Plugin Changelog
 
 ## [Unreleased]
+
+## [0.8.1.eap.1]
+### Fixed
+- Investigating why test window toolbar icon is not always displayed for Kensa tests.
+
+## [0.8.1]
 ### Added
 - Site-mode discovery: gutter icons and the test-tree context menu now recognise Kensa 0.8 site bundles (`build/kensa-site/sources/<id>/`) in addition to the default `kensa-output/` layout. The plugin walks for `indices.json` whose grandparent is `sources/` and whose great-grandparent has a `manifest.json`.
 - Multi-source routing: when a test class lives in a Gradle source set whose name matches a Kensa source id (the default mapping), gutter clicks open the site shell with a `<sourceId>::<class>` route, so the report sidebar lands on the correct source. Same class run in two source sets stays separated; the gutter icon for a file in `src/uiTest/...` reflects the `uiTest` source's status.

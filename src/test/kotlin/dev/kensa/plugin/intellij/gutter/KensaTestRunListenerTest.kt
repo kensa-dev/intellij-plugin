@@ -55,6 +55,34 @@ class KensaTestRunListenerTest {
     }
 
     @Test
+    fun `classes bind to the descriptor at onTestingFinished, not during the run`() {
+        // Late binding: the descriptor is resolved once, when testing finishes and the test
+        // tab is reliably the selected content. During the run (onTestFinished) nothing is
+        // bound to the registry yet — this avoids filing classes under the premature/stale
+        // descriptor that Gradle-delegated runs expose at onTestingStarted.
+        val project = projectFixture.get()
+        val registry = project.service<KensaRunTabRegistry>()
+        val listener = KensaTestRunListener(project)
+
+        val descriptor = newDescriptor()
+        val root = SMRootTestProxy()
+        root.putUserData(KensaTestRunListener.DESCRIPTOR_KEY, descriptor)
+        val leaf = SMTestProxy("m", false, "java:test://com.example.LateBound/m")
+        root.addChild(leaf)
+        leaf.setStarted(); leaf.setFinished()
+
+        listener.onTestFinished(leaf)
+
+        // Nothing bound yet — binding is deferred to onTestingFinished.
+        assertTrue(registry.classesFor(descriptor).isEmpty())
+
+        listener.onTestingFinished(root)
+
+        // Now the accumulated class is bound to the resolved descriptor.
+        assertTrue("com.example.LateBound" in registry.classesFor(descriptor))
+    }
+
+    @Test
     fun `class without a Kensa index path leaves indexPathFor null`() {
         val project = projectFixture.get()
         val registry = project.service<KensaRunTabRegistry>()
@@ -69,6 +97,7 @@ class KensaTestRunListenerTest {
         leaf.setStarted(); leaf.setFinished()
 
         listener.onTestFinished(leaf)
+        listener.onTestingFinished(root)
 
         // Class IS recorded (every class is recorded — the gate is now at the service layer).
         assertTrue("com.example.Plain" in registry.classesFor(descriptor))
@@ -93,6 +122,7 @@ class KensaTestRunListenerTest {
         leaf.setStarted(); leaf.setFinished()
 
         listener.onTestFinished(leaf)
+        listener.onTestingFinished(root)
 
         assertEquals("/p/index.html", registry.indexPathFor(descriptor))
         assertTrue("com.example.MyKensaTest" in registry.classesFor(descriptor))

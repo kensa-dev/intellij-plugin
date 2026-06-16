@@ -44,6 +44,7 @@ class KensaRunTabRegistryTest {
         leaf.setStarted(); leaf.setFinished()
 
         listener.onTestFinished(leaf)
+        listener.onTestingFinished(root)
 
         assertEquals("/out/index.html", registry.indexPathFor(descriptor))
     }
@@ -63,6 +64,7 @@ class KensaRunTabRegistryTest {
         leaf.setStarted(); leaf.setFinished()
 
         listener.onTestFinished(leaf)
+        listener.onTestingFinished(root)
         assertNull(registry.indexPathFor(descriptor))
 
         results.updateFromIndex(

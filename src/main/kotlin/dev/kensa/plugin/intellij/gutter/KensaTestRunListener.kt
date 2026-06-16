@@ -7,6 +7,7 @@ import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import dev.kensa.plugin.intellij.execution.KensaEngagementNotifier
@@ -14,19 +15,20 @@ import dev.kensa.plugin.intellij.execution.KensaRunTabRegistry
 import dev.kensa.plugin.intellij.settings.KensaEngagementService
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 class KensaTestRunListener(
     private val project: Project,
 ) : SMTRunnerEventsAdapter() {
 
-    companion object {
-        internal val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
-    }
+    private val log = thisLogger()
 
-    override fun onTestingStarted(testsRoot: SMRootTestProxy) {
-        RunContentManager.getInstance(project).selectedContent?.let { descriptor ->
-            testsRoot.putUserData(DESCRIPTOR_KEY, descriptor)
-        }
+    companion object {
+        // Test seam: tests pre-set this on the root proxy to pin the descriptor. In
+        // production it is left unset so the descriptor is resolved from the live
+        // selectedContent when testing finishes (see resolveDescriptor).
+        internal val DESCRIPTOR_KEY: Key<RunContentDescriptor> = Key.create("kensa.runContentDescriptor")
+        internal val RECORDED_CLASSES_KEY: Key<MutableSet<String>> = Key.create("kensa.recordedClasses")
     }
 
     override fun onTestFinished(test: SMTestProxy) {
@@ -34,22 +36,31 @@ class KensaTestRunListener(
         methodName ?: return
         val baseMethod = methodName.substringBefore('[').takeIf { it.isNotBlank() } ?: return
         project.service<KensaTestResultsService>().updateMethod(classFqn, baseMethod, test.toStatus() ?: return)
-        maybeTagDescriptor(test, classFqn)
+        rememberClass(test, classFqn)
     }
 
     override fun onSuiteFinished(suite: SMTestProxy) {
         val (classFqn, methodName) = parseLocation(suite.locationUrl ?: return) ?: return
         if (methodName != null) return // only handle class-level suites
         project.service<KensaTestResultsService>().updateClass(classFqn, suite.toStatus() ?: return)
-        maybeTagDescriptor(suite, classFqn)
+        rememberClass(suite, classFqn)
     }
 
     override fun onTestingFinished(testsRoot: SMRootTestProxy) {
-        val descriptor = testsRoot.getUserData(DESCRIPTOR_KEY)
-            ?: RunContentManager.getInstance(project).selectedContent
-            ?: return
+        // Bind the run's classes to the descriptor LATE — once, here, when the test tab is
+        // reliably the selected content. Capturing earlier (onTestingStarted) is unreliable
+        // for Gradle-delegated runs, whose first phase lives in the Build window, so the
+        // descriptor seen at start can be null or the previous run's tab. Filing classes
+        // under that stale descriptor is what made the run-window icon vanish in some
+        // projects: the toolbar's update() resolves the live (correct) selectedContent and
+        // would never find them.
+        val descriptor = resolveDescriptor(testsRoot) ?: return
         val registry = project.service<KensaRunTabRegistry>()
-        // Only refresh + notify if this run actually exercised a Kensa-derived test class.
+
+        val recorded = testsRoot.getUserData(RECORDED_CLASSES_KEY)?.toSet().orEmpty()
+        recorded.forEach { registry.recordClass(descriptor, it) }
+
+        // Cheap exit for non-Kensa run tabs: nothing recorded means no project-wide scan.
         if (registry.classesFor(descriptor).isEmpty()) return
 
         project.basePath?.let { base ->
@@ -57,7 +68,15 @@ class KensaTestRunListener(
             KensaIndexLoader.scan(project, File(base), outputDir)
         }
 
-        if (registry.indexPathFor(descriptor) == null) return
+        val indexPath = registry.indexPathFor(descriptor)
+        log.info(
+            "Kensa run finished: bound ${recorded.size} class(es) to descriptor@" +
+                "${System.identityHashCode(descriptor)} [${recorded.joinToString()}]; index=${indexPath ?: "none yet"}"
+        )
+
+        // Report not on disk yet (Kensa flushes on JVM shutdown); the 5s poll will load it
+        // and refresh the toolbar. The class binding above already persists in the registry.
+        if (indexPath == null) return
 
         val engagementService = ApplicationManager.getApplication().service<KensaEngagementService>()
         val state = engagementService.state
@@ -71,23 +90,21 @@ class KensaTestRunListener(
         }
     }
 
-    private fun maybeTagDescriptor(proxy: SMTestProxy, classFqn: String) {
-        val descriptor = proxy.rootDescriptor() ?: return
-        project.service<KensaRunTabRegistry>().recordClass(descriptor, classFqn)
+    private fun rememberClass(proxy: SMTestProxy, classFqn: String) {
+        val root = proxy.findRoot() ?: return
+        val set = root.getUserData(RECORDED_CLASSES_KEY)
+            ?: ConcurrentHashMap.newKeySet<String>().also { root.putUserData(RECORDED_CLASSES_KEY, it) }
+        set.add(classFqn)
     }
 
-    private fun SMTestProxy.rootDescriptor(): RunContentDescriptor? {
+    private fun resolveDescriptor(testsRoot: SMRootTestProxy): RunContentDescriptor? =
+        testsRoot.getUserData(DESCRIPTOR_KEY)
+            ?: RunContentManager.getInstance(project).selectedContent
+
+    private fun SMTestProxy.findRoot(): SMRootTestProxy? {
         var node: SMTestProxy? = this
         while (node != null) {
-            if (node is SMRootTestProxy) {
-                node.getUserData(DESCRIPTOR_KEY)?.let { return it }
-                // onTestingStarted may fire before the test run tab becomes the selected
-                // content (e.g. Gradle-delegated runs spend their first phase in the Build
-                // window). Lazy-capture here so later events can still tag the descriptor.
-                val current = RunContentManager.getInstance(project).selectedContent ?: return null
-                node.putUserData(DESCRIPTOR_KEY, current)
-                return current
-            }
+            if (node is SMRootTestProxy) return node
             node = node.parent
         }
         return null
