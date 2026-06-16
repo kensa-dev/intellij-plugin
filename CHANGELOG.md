@@ -4,7 +4,7 @@
 
 ## [Unreleased]
 
-## [0.8.1.eap.1]
+## [0.8.1-eap.1]
 ### Fixed
 - Investigating why test window toolbar icon is not always displayed for Kensa tests.
 
