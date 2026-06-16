@@ -4,7 +4,8 @@
 
 ## [Unreleased]
 ### Fixed
-- Investigating why test window toolbar icon is not always displayed for Kensa tests.
+- Run-window "Open Kensa Report" toolbar icon now appears reliably after Gradle-delegated test runs. `KensaTestRunListener` captured the run tab's `RunContentDescriptor` in `onTestingStarted` — too early for Gradle delegation, where the Build window holds focus while Gradle ramps up, so classes were filed under a stale or empty descriptor that the toolbar's `update()` never resolved. The listener now accumulates the run's classes on the stable test-root proxy and binds them to the descriptor once, at `onTestingFinished`, when the test tab is reliably the selected content.
+- Toolbar icon no longer renders as a giant full-width button that opens the report when clicked anywhere on the toolbar. The shared action icon (`/icons/logo.svg`) declared a 512×512 intrinsic size, so IntelliJ sized the `ActionButton` to fill the whole toolbar; it is now a normal 16×16 action icon.
 
 ## [0.8.1]
 ### Added
