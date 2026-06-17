@@ -91,12 +91,16 @@ fun localReportPath(project: Project, classFqn: String, fileSourceId: String?): 
 fun ciUrl(project: Project, classFqn: String, methodName: String?): String? =
     project.service<KensaSettings>().resolveUrl(project, classFqn, methodName)
 
+// Single-source (non-site) reports fall back to this manifest source id (see the report's
+// manifestLoader). The report tree always keys class nodes as "<sourceId>::<class>", so the
+// route must always carry a source prefix — a bare "#/test/<class>" selects nothing.
+private const val DEFAULT_SOURCE_ID = "default"
+
 fun buildKensaRoute(classFqn: String, methodName: String?, sourceId: String?): String = buildString {
     append("#/test/")
-    if (!sourceId.isNullOrBlank()) {
-        append(URLEncoder.encode(sourceId, UTF_8))
-        append("::")
-    }
+    val effectiveSourceId = sourceId?.takeIf { it.isNotBlank() } ?: DEFAULT_SOURCE_ID
+    append(URLEncoder.encode(effectiveSourceId, UTF_8))
+    append("::")
     append(URLEncoder.encode(classFqn, UTF_8))
     if (!methodName.isNullOrBlank()) {
         append("?method=")

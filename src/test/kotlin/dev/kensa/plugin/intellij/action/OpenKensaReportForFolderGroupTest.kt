@@ -113,6 +113,36 @@ class OpenKensaReportForFolderGroupTest {
     }
 
     @Test
+    fun `normal-mode output discovered by scan shows the folder menu`() {
+        // End-to-end: mirror a real non-site project (build/kensa-output/) on disk, run the
+        // same discovery the startup scan/poll use, then assert the project-tree menu shows.
+        val project = projectFixture.get()
+        val tmp = Files.createTempDirectory("kensa-folder-e2e-normal").toFile()
+        val out = File(tmp, "build/kensa-output").apply { mkdirs() }
+        File(out, "index.html").writeText("<html/>")
+        File(out, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.E2E","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+
+        dev.kensa.plugin.intellij.gutter.KensaIndexLoader.scan(project, tmp, "kensa-output")
+
+        val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tmp)
+            ?: error("temp dir not visible to VFS")
+
+        val action = OpenKensaReportForFolderGroup()
+        val context = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.VIRTUAL_FILE, vDir)
+            .build()
+        val event = TestActionEvent.createTestEvent(action, context)
+
+        action.update(event)
+        assertTrue(event.presentation.isEnabledAndVisible, "menu should be visible for a discovered normal-mode report")
+        assertEquals(1, action.getChildren(event).size)
+    }
+
+    @Test
     fun `getChildren includes site-mode shell when registered`() {
         val project = projectFixture.get()
         val results = project.service<KensaTestResultsService>()

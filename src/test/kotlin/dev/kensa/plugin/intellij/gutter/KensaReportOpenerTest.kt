@@ -81,14 +81,17 @@ class KensaReportOpenerTest {
     }
 
     @Test
-    fun `buildKensaRoute single bundle without method`() {
-        assertEquals("#/test/com.example.X", buildKensaRoute("com.example.X", null, null))
+    fun `buildKensaRoute single bundle without method uses default source id`() {
+        // A single-source (non-site) report falls back to manifest source id "default", and the
+        // report tree always keys class nodes as "<sourceId>::<class>". A bare "#/test/<class>"
+        // route matches no node, so the report opens but selects nothing.
+        assertEquals("#/test/default::com.example.X", buildKensaRoute("com.example.X", null, null))
     }
 
     @Test
-    fun `buildKensaRoute single bundle with method`() {
+    fun `buildKensaRoute single bundle with method uses default source id`() {
         assertEquals(
-            "#/test/com.example.X?method=runs",
+            "#/test/default::com.example.X?method=runs",
             buildKensaRoute("com.example.X", "runs", null),
         )
     }
