@@ -7,7 +7,6 @@ import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import dev.kensa.plugin.intellij.execution.KensaEngagementNotifier
@@ -20,8 +19,6 @@ import java.util.concurrent.ConcurrentHashMap
 class KensaTestRunListener(
     private val project: Project,
 ) : SMTRunnerEventsAdapter() {
-
-    private val log = thisLogger()
 
     companion object {
         // Test seam: tests pre-set this on the root proxy to pin the descriptor. In
@@ -69,11 +66,6 @@ class KensaTestRunListener(
         }
 
         val indexPath = registry.indexPathFor(descriptor)
-        log.info(
-            "Kensa run finished: bound ${recorded.size} class(es) to descriptor@" +
-                "${System.identityHashCode(descriptor)} [${recorded.joinToString()}]; index=${indexPath ?: "none yet"}"
-        )
-
         // Report not on disk yet (Kensa flushes on JVM shutdown); the 5s poll will load it
         // and refresh the toolbar. The class binding above already persists in the registry.
         if (indexPath == null) return
