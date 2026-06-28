@@ -53,6 +53,27 @@ class KensaTestResultsServiceTest {
     }
 
     @Test
+    fun `bundleDirs returns the directory of each discovered report`() {
+        val results = projectFixture.get().service<KensaTestResultsService>()
+
+        results.updateFromIndex(
+            "com.example.Single", null, TestStatus.PASSED,
+            "/proj/modA/build/kensa-output/index.html", "/proj/modA/build/kensa-output",
+            mapOf("m" to TestStatus.PASSED),
+        )
+        results.updateFromIndex(
+            "com.example.Site", "uiTest", TestStatus.PASSED,
+            "/proj/build/kensa-site/index.html", "/proj/build/kensa-site/sources/uiTest",
+            mapOf("m" to TestStatus.PASSED),
+        )
+
+        assertEquals(
+            setOf("/proj/modA/build/kensa-output", "/proj/build/kensa-site/sources/uiTest"),
+            results.bundleDirs(),
+        )
+    }
+
+    @Test
     fun `update from index infers class status failed from methods`() {
         val results = projectFixture.get().service<KensaTestResultsService>()
         results.updateFromIndex(

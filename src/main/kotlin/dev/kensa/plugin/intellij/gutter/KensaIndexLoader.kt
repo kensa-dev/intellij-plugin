@@ -15,6 +15,10 @@ object KensaIndexLoader {
     private val log = thisLogger()
     private val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
 
+    // Directories that can never contain a Kensa report and are expensive to descend. `build` is
+    // deliberately NOT excluded — kensa-output commonly lives under it.
+    private val EXCLUDED_DIRS = setOf(".git", ".gradle", ".idea", "node_modules")
+
     fun loadFromFile(project: Project, indicesJson: VirtualFile) {
         val classification = classify(File(indicesJson.path)) ?: return
         val key = indicesJson.path
@@ -34,9 +38,42 @@ object KensaIndexLoader {
     }
 
     fun scan(project: Project, root: File, outputDirName: String) {
+        findIndices(root, outputDirName).forEach { loadFromFile(project, it) }
+    }
+
+    /**
+     * Recursively locate Kensa `indices.json` files under [root], skipping directories that can
+     * never hold a report (`.git`, `node_modules`, …) so the walk stays cheap on large projects.
+     */
+    fun findIndices(root: File, outputDirName: String): List<File> =
         root.walkTopDown()
+            .onEnter { it.name !in EXCLUDED_DIRS }
             .filter { it.name == "indices.json" && isKensaIndicesJson(it, outputDirName) }
-            .forEach { loadFromFile(project, it) }
+            .toList()
+
+    /**
+     * Cheaply probe a single build/output dir (e.g. `build`, `target`) for Kensa reports without
+     * walking its full tree — build dirs are huge, so a walk would reintroduce the CPU cost we are
+     * avoiding. A report only ever appears at a fixed shape:
+     *   - single: `<buildDir>/<reportDir>/indices.json`
+     *   - site:   `<buildDir>/<reportDir>/sources/<sourceId>/indices.json`
+     * so we look only at those positions (a couple of directory listings), never inside `classes/`,
+     * `tmp/`, etc. Loads are mtime-gated, so repeated probes of unchanged reports are no-ops.
+     */
+    fun probeBuildDir(project: Project, buildDir: File, outputDirName: String) {
+        val children = buildDir.listFiles { f -> f.isDirectory } ?: return
+        children.forEach { reportDir ->
+            File(reportDir, "indices.json").let { single ->
+                if (single.isFile && isKensaIndicesJson(single, outputDirName)) loadFromFile(project, single)
+            }
+            File(reportDir, "sources").listFiles { f -> f.isDirectory }?.forEach { source ->
+                File(source, "indices.json").let { siteIndices ->
+                    if (siteIndices.isFile && isKensaIndicesJson(siteIndices, outputDirName)) {
+                        loadFromFile(project, siteIndices)
+                    }
+                }
+            }
+        }
     }
 
     private fun shouldLoad(key: String, mtime: Long): Boolean {

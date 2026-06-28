@@ -72,6 +72,27 @@ class KensaReportOpenerTest {
     }
 
     @Test
+    fun `gutter report actions expose only local when CI template unset`() {
+        val project = projectFixture.get()
+        project.service<KensaSettings>().state.ciReportUrlTemplate = null
+
+        val actions = buildGutterReportActions(project, KensaTarget("com.example.X", "m"), null).childActionsOrStubs
+        assertEquals(1, actions.size)
+        assertEquals("Open Local Report", actions[0].templatePresentation.text)
+    }
+
+    @Test
+    fun `gutter report actions add CI entry when template configured`() {
+        val project = projectFixture.get()
+        project.service<KensaSettings>().state.ciReportUrlTemplate = "https://ci/{testClass}?method={testMethod}"
+
+        val actions = buildGutterReportActions(project, KensaTarget("com.example.X", "m"), null).childActionsOrStubs
+        assertEquals(2, actions.size)
+        assertEquals("Open Local Report", actions[0].templatePresentation.text)
+        assertEquals("Open CI Report", actions[1].templatePresentation.text)
+    }
+
+    @Test
     fun `KensaTarget data class equality and copy`() {
         val a = KensaTarget("com.example.X", "method")
         val b = KensaTarget("com.example.X", "method")

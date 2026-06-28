@@ -97,6 +97,9 @@ class KensaTestResultsService(private val project: Project) {
 
     fun allIndexPaths(): Set<String> = indexEntries.values.map { it.indexHtmlPath }.toSet()
 
+    /** Directories holding a discovered `indices.json`, used to register native file-watches. */
+    fun bundleDirs(): Set<String> = indexEntries.values.map { it.bundleDir }.toSet()
+
     fun indexPathsByRecency(): List<String> =
         indexPathUpdatedAt.entries
             .sortedByDescending { it.value }

@@ -354,6 +354,56 @@ class KensaIndexLoaderTest {
     }
 
     @Test
+    fun `findIndices skips excluded directories`() {
+        val root = Files.createTempDirectory("kensa-prune").toFile()
+
+        // A real report under build/ must be found (build is NOT excluded).
+        val realBundle = File(root, "mod/build/kensa-output").apply { mkdirs() }
+        val real = File(realBundle, "indices.json").apply { writeText("{}") }
+
+        // A would-match report buried in an excluded dir must be skipped, even though its parent
+        // dir is literally named kensa-output (so isKensaIndicesJson would otherwise accept it).
+        val buried = File(root, "node_modules/pkg/kensa-output").apply { mkdirs() }
+        File(buried, "indices.json").apply { writeText("{}") }
+
+        val found = KensaIndexLoader.findIndices(root, "kensa-output").map { it.absolutePath }
+
+        assertTrue(real.absolutePath in found)
+        assertEquals(1, found.size)
+    }
+
+    @Test
+    fun `probeBuildDir finds single and site reports without walking the whole build dir`() {
+        val project = projectFixture.get()
+        val buildDir = Files.createTempDirectory("kensa-probe").toFile()
+
+        // Noise that a full walk would churn through but the probe must never descend into.
+        File(buildDir, "classes/java/main/com/example").apply { mkdirs() }
+        File(buildDir, "classes/java/main/com/example/App.class").writeText("noise")
+        File(buildDir, "tmp/compileJava").apply { mkdirs() }
+
+        // Single-mode report: <build>/kensa-output/indices.json
+        File(buildDir, "kensa-output").mkdirs()
+        File(buildDir, "kensa-output/indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.SingleProbe","state":"Passed",
+            "children":[{"testMethod":"x","state":"Passed"}]}]}"""
+        )
+
+        // Site-mode report: <build>/kensa-site/sources/<id>/indices.json (site root name differs).
+        File(buildDir, "kensa-site/sources/uiTest").mkdirs()
+        File(buildDir, "kensa-site/sources/uiTest/indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.SiteProbe","state":"Failed",
+            "children":[{"testMethod":"y","state":"Failed"}]}]}"""
+        )
+
+        KensaIndexLoader.probeBuildDir(project, buildDir, "kensa-output")
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.SingleProbe", "x"))
+        assertEquals(TestStatus.FAILED, results.getMethodStatus("com.example.SiteProbe", "y", "uiTest"))
+    }
+
+    @Test
     fun `loadFromFile re-loads when mtime advances`() {
         val project = projectFixture.get()
         val tempDir = Files.createTempDirectory("kensa-mtime-advance").toFile()

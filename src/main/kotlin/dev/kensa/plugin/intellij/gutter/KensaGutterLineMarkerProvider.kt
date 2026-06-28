@@ -2,6 +2,7 @@ package dev.kensa.plugin.intellij.gutter
 
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.codeInsight.daemon.LineMarkerProvider
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.Project
@@ -24,17 +25,28 @@ class KensaGutterLineMarkerProvider : LineMarkerProvider {
         if (localReportPath(element.project, target.classFqn, fileSourceId) == null) return null
         val icon = iconFor(element.project, target.classFqn, target.methodName, fileSourceId) ?: return null
 
-        return LineMarkerInfo(
+        val hasCi = ciUrl(element.project, target.classFqn, target.methodName) != null
+        val tooltip = if (hasCi) "Open Kensa report  (right-click for CI report)" else "Open Kensa report"
+
+        return object : LineMarkerInfo<PsiElement>(
             element,
             element.textRange,
             icon,
-            { "Open Kensa report" },
+            { tooltip },
+            // Left-click always opens the local report — one click, no chooser.
             { mouseEvent, psiElement ->
                 KensaReportOpener.openLocal(mouseEvent, psiElement.project, target.classFqn, target.methodName, fileSourceId)
             },
             GutterIconRenderer.Alignment.RIGHT,
-            { "Open Kensa report" }
-        )
+            { tooltip }
+        ) {
+            // Right-click exposes the Local / CI chooser; CI is only present when a template is set.
+            override fun createGutterRenderer(): GutterIconRenderer =
+                object : LineMarkerGutterIconRenderer<PsiElement>(this) {
+                    override fun getPopupMenuActions(): ActionGroup =
+                        buildGutterReportActions(element.project, target, fileSourceId)
+                }
+        }
     }
 
     private fun iconFor(project: Project, classFqn: String, methodName: String?, fileSourceId: String?): Icon? {

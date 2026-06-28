@@ -3,12 +3,16 @@ package dev.kensa.plugin.intellij.gutter
 import com.intellij.ide.browsers.BrowserLauncher
 import com.intellij.ide.browsers.OpenInBrowserRequest
 import com.intellij.ide.browsers.WebBrowserService
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.*
 import com.intellij.psi.search.GlobalSearchScope
@@ -90,6 +94,29 @@ fun localReportPath(project: Project, classFqn: String, fileSourceId: String?): 
 
 fun ciUrl(project: Project, classFqn: String, methodName: String?): String? =
     project.service<KensaSettings>().resolveUrl(project, classFqn, methodName)
+
+/**
+ * Actions shown in the gutter icon's right-click menu. Left-click on the icon always opens the
+ * local report (one click, no chooser); the CI entry only appears here when a CI report URL
+ * template is configured, so the per-test template stays the only CI URL model.
+ */
+fun buildGutterReportActions(project: Project, target: KensaTarget, fileSourceId: String?): DefaultActionGroup {
+    val logo = IconLoader.getIcon("/icons/logo.svg", KensaReportOpener::class.java)
+    return DefaultActionGroup().apply {
+        add(object : AnAction("Open Local Report", null, logo) {
+            override fun actionPerformed(e: AnActionEvent) {
+                KensaReportOpener.openLocal(null, project, target.classFqn, target.methodName, fileSourceId)
+            }
+        })
+        if (ciUrl(project, target.classFqn, target.methodName) != null) {
+            add(object : AnAction("Open CI Report", null, logo) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    KensaReportOpener.openCi(project, target.classFqn, target.methodName)
+                }
+            })
+        }
+    }
+}
 
 // Single-source (non-site) reports fall back to this manifest source id (see the report's
 // manifestLoader). The report tree always keys class nodes as "<sourceId>::<class>", so the
