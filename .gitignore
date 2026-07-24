@@ -6,3 +6,7 @@
 .qodana
 build
 .worktrees
+
+# Marketplace signing material — must never be committed
+private.pem
+chain.crt

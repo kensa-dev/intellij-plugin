@@ -62,7 +62,7 @@ class KensaTestRunListener(
 
         project.basePath?.let { base ->
             val outputDir = project.service<KensaSettings>().effectiveOutputDirName
-            KensaIndexLoader.scan(project, File(base), outputDir)
+            project.service<KensaIndexLoader>().scan(File(base), outputDir)
         }
 
         val indexPath = registry.indexPathFor(descriptor)

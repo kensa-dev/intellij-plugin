@@ -17,11 +17,6 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListener
-import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
-import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
-import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
-import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.kensa.plugin.intellij.gutter.KensaResultsListener
 import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
@@ -47,7 +42,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
         fun walkForIndices() {
             if (project.isDisposed) return
             val outputDir = project.service<KensaSettings>().effectiveOutputDirName
-            KensaIndexLoader.scan(project, File(basePath), outputDir)
+            project.service<KensaIndexLoader>().scan(File(basePath), outputDir)
         }
 
         // The build/output dirs (Gradle `build`, Maven `target`, …) are exactly the dirs IntelliJ
@@ -124,7 +119,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 if (project.isDisposed) return@scheduleWithFixedDelay
                 val outputDir = project.service<KensaSettings>().effectiveOutputDirName
                 buildRoots.get().forEach { root ->
-                    KensaIndexLoader.probeBuildDir(project, File(root), outputDir)
+                    project.service<KensaIndexLoader>().probeBuildDir(File(root), outputDir)
                 }
                 syncWatchedRoots()
             },
@@ -140,7 +135,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 buildRoots.set(computeBuildRoots())
                 walkForIndices()
                 project.service<KensaTestResultsService>().pruneMissingFiles()
-                KensaIndexLoader.pruneLoadedMtimes { File(it).exists() }
+                project.service<KensaIndexLoader>().pruneLoadedMtimes { File(it).exists() }
                 syncWatchedRoots()
             },
             60, 60, TimeUnit.SECONDS,
@@ -154,30 +149,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
             watchedRoots.clear()
         }
 
-        project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
-            override fun after(events: List<VFileEvent>) {
-                val outputDir = project.service<KensaSettings>().effectiveOutputDirName
-
-                val hasRelevantDelete = events.any { event ->
-                    event is VFileDeleteEvent && event.path.startsWith(basePath)
-                }
-                if (hasRelevantDelete) {
-                    project.service<KensaTestResultsService>().pruneMissingFiles()
-                }
-
-                events.forEach { event ->
-                    if ((event is VFileContentChangeEvent || event is VFileCreateEvent) &&
-                        event.path.startsWith(basePath) &&
-                        event.path.endsWith("/indices.json")
-                    ) {
-                        val file = File(event.path)
-                        if (KensaIndexLoader.isKensaIndicesJson(file, outputDir)) {
-                            KensaIndexLoader.loadFromFile(project, file)
-                        }
-                    }
-                }
-            }
-        })
+        project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, KensaVfsListener(project, basePath))
     }
 
     private class OpenKensaReportNotificationAction(

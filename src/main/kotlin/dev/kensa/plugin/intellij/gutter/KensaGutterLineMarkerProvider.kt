@@ -18,14 +18,19 @@ class KensaGutterLineMarkerProvider : LineMarkerProvider {
     private val iconIgnored: Icon = IconLoader.getIcon("/icons/kensa-gutter-ignored.svg", KensaGutterLineMarkerProvider::class.java)
 
     override fun getLineMarkerInfo(element: PsiElement): LineMarkerInfo<*>? {
-        if (!element.project.service<KensaSettings>().state.showGutterIcons) return null
+        // Capture the project once, while `element` is valid. The click / popup callbacks below run
+        // later (the popup one is invoked speculatively during highlighting by
+        // GutterIntentionMenuContributor), by which time `element` may be invalidated — so they must
+        // never dereference it, or `element.project` throws PsiInvalidElementAccessException.
+        val project = element.project
+        if (!project.service<KensaSettings>().state.showGutterIcons) return null
 
         val target = resolveKensaTarget(element) ?: return null
         val fileSourceId = KensaSourceSetResolver.resolve(element)
-        if (localReportPath(element.project, target.classFqn, fileSourceId) == null) return null
-        val icon = iconFor(element.project, target.classFqn, target.methodName, fileSourceId) ?: return null
+        if (localReportPath(project, target.classFqn, fileSourceId) == null) return null
+        val icon = iconFor(project, target.classFqn, target.methodName, fileSourceId) ?: return null
 
-        val hasCi = ciUrl(element.project, target.classFqn, target.methodName) != null
+        val hasCi = ciUrl(project, target.classFqn, target.methodName) != null
         val tooltip = if (hasCi) "Open Kensa report  (right-click for CI report)" else "Open Kensa report"
 
         return object : LineMarkerInfo<PsiElement>(
@@ -34,17 +39,19 @@ class KensaGutterLineMarkerProvider : LineMarkerProvider {
             icon,
             { tooltip },
             // Left-click always opens the local report — one click, no chooser.
-            { mouseEvent, psiElement ->
-                KensaReportOpener.openLocal(mouseEvent, psiElement.project, target.classFqn, target.methodName, fileSourceId)
+            { mouseEvent, _ ->
+                KensaReportOpener.openLocal(mouseEvent, project, target.classFqn, target.methodName, fileSourceId)
             },
             GutterIconRenderer.Alignment.RIGHT,
             { tooltip }
         ) {
             // Right-click exposes the Local / CI chooser; CI is only present when a template is set.
+            // Uses only the captured project/target/fileSourceId — never `element` — because the
+            // menu contributor calls this during highlighting, when the element may be invalid.
             override fun createGutterRenderer(): GutterIconRenderer =
                 object : LineMarkerGutterIconRenderer<PsiElement>(this) {
                     override fun getPopupMenuActions(): ActionGroup =
-                        buildGutterReportActions(element.project, target, fileSourceId)
+                        buildGutterReportActions(project, target, fileSourceId)
                 }
         }
     }

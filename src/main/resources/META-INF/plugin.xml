@@ -6,9 +6,6 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
-    <depends>JUnit</depends>
-    <depends>com.intellij.gradle</depends>
-    <depends>org.jetbrains.idea.maven</depends>
 
     <resource-bundle>messages.KensaBundle</resource-bundle>
 

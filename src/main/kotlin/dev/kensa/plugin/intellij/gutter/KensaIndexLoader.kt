@@ -2,6 +2,8 @@ package dev.kensa.plugin.intellij.gutter
 
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.Service.Level.PROJECT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
@@ -9,47 +11,37 @@ import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-object KensaIndexLoader {
+@Service(PROJECT)
+class KensaIndexLoader(private val project: Project) {
 
-    private val gson = Gson()
     private val log = thisLogger()
+
+    // Per-project on purpose: this gate must die with the project. If it outlived the project
+    // (as it did when the loader was a singleton), reopening a project in the same IDE session
+    // would skip every unchanged indices.json and leave the fresh results service empty.
     private val lastLoadedMtimes = ConcurrentHashMap<String, Long>()
 
-    // Directories that can never contain a Kensa report and are expensive to descend. `build` is
-    // deliberately NOT excluded — kensa-output commonly lives under it.
-    private val EXCLUDED_DIRS = setOf(".git", ".gradle", ".idea", "node_modules")
-
-    fun loadFromFile(project: Project, indicesJson: VirtualFile) {
+    fun loadFromFile(indicesJson: VirtualFile) {
         val classification = classify(File(indicesJson.path)) ?: return
         val key = indicesJson.path
         val mtime = indicesJson.timeStamp
         if (!shouldLoad(key, mtime)) return
         val json = indicesJson.inputStream.reader().use { it.readText() }
-        loadJson(project, classification, json, indicesJson.path)
+        loadJson(classification, json, indicesJson.path)
     }
 
-    fun loadFromFile(project: Project, indicesJson: File) {
+    fun loadFromFile(indicesJson: File) {
         val classification = classify(indicesJson) ?: return
         val key = indicesJson.absolutePath
         val mtime = indicesJson.lastModified()
         if (!shouldLoad(key, mtime)) return
         val json = indicesJson.readText()
-        loadJson(project, classification, json, indicesJson.absolutePath)
+        loadJson(classification, json, indicesJson.absolutePath)
     }
 
-    fun scan(project: Project, root: File, outputDirName: String) {
-        findIndices(root, outputDirName).forEach { loadFromFile(project, it) }
+    fun scan(root: File, outputDirName: String) {
+        findIndices(root, outputDirName).forEach { loadFromFile(it) }
     }
-
-    /**
-     * Recursively locate Kensa `indices.json` files under [root], skipping directories that can
-     * never hold a report (`.git`, `node_modules`, …) so the walk stays cheap on large projects.
-     */
-    fun findIndices(root: File, outputDirName: String): List<File> =
-        root.walkTopDown()
-            .onEnter { it.name !in EXCLUDED_DIRS }
-            .filter { it.name == "indices.json" && isKensaIndicesJson(it, outputDirName) }
-            .toList()
 
     /**
      * Cheaply probe a single build/output dir (e.g. `build`, `target`) for Kensa reports without
@@ -60,16 +52,16 @@ object KensaIndexLoader {
      * so we look only at those positions (a couple of directory listings), never inside `classes/`,
      * `tmp/`, etc. Loads are mtime-gated, so repeated probes of unchanged reports are no-ops.
      */
-    fun probeBuildDir(project: Project, buildDir: File, outputDirName: String) {
+    fun probeBuildDir(buildDir: File, outputDirName: String) {
         val children = buildDir.listFiles { f -> f.isDirectory } ?: return
         children.forEach { reportDir ->
             File(reportDir, "indices.json").let { single ->
-                if (single.isFile && isKensaIndicesJson(single, outputDirName)) loadFromFile(project, single)
+                if (single.isFile && isKensaIndicesJson(single, outputDirName)) loadFromFile(single)
             }
             File(reportDir, "sources").listFiles { f -> f.isDirectory }?.forEach { source ->
                 File(source, "indices.json").let { siteIndices ->
                     if (siteIndices.isFile && isKensaIndicesJson(siteIndices, outputDirName)) {
-                        loadFromFile(project, siteIndices)
+                        loadFromFile(siteIndices)
                     }
                 }
             }
@@ -87,40 +79,7 @@ object KensaIndexLoader {
         lastLoadedMtimes.keys.removeIf { !stillExists(it) }
     }
 
-    fun isKensaIndicesJson(indicesJson: File, outputDirName: String): Boolean =
-        classify(indicesJson, outputDirName) != null
-
-    private data class BundleClassification(
-        val indexHtmlPath: String,
-        val sourceId: String?,
-        val bundleDir: String,
-    )
-
-    private fun classify(indicesJson: File, outputDirName: String? = null): BundleClassification? {
-        val parent = indicesJson.parentFile ?: return null
-        val grandparent = parent.parentFile
-        val siteRoot = grandparent?.parentFile
-
-        if (grandparent?.name == "sources" && siteRoot != null) {
-            return BundleClassification(
-                indexHtmlPath = File(siteRoot, "index.html").absolutePath,
-                sourceId = parent.name,
-                bundleDir = parent.absolutePath,
-            )
-        }
-
-        if (outputDirName == null || parent.name == outputDirName) {
-            return BundleClassification(
-                indexHtmlPath = File(parent, "index.html").absolutePath,
-                sourceId = null,
-                bundleDir = parent.absolutePath,
-            )
-        }
-
-        return null
-    }
-
-    private fun loadJson(project: Project, classification: BundleClassification, json: String, sourceForLog: String) {
+    private fun loadJson(classification: BundleClassification, json: String, sourceForLog: String) {
         try {
             val root = gson.fromJson(json, KensaIndicesRoot::class.java) ?: return
 
@@ -153,12 +112,64 @@ object KensaIndexLoader {
         }
     }
 
-    private fun String.toTestStatus(): TestStatus? = when (this) {
-        "Passed" -> TestStatus.PASSED
-        "Failed" -> TestStatus.FAILED
-        "Ignored", "Disabled", "Skipped" -> TestStatus.IGNORED
-        else -> null
+    companion object {
+
+        private val gson = Gson()
+
+        // Directories that can never contain a Kensa report and are expensive to descend. `build` is
+        // deliberately NOT excluded — kensa-output commonly lives under it.
+        private val EXCLUDED_DIRS = setOf(".git", ".gradle", ".idea", "node_modules")
+
+        /**
+         * Recursively locate Kensa `indices.json` files under [root], skipping directories that can
+         * never hold a report (`.git`, `node_modules`, …) so the walk stays cheap on large projects.
+         */
+        fun findIndices(root: File, outputDirName: String): List<File> =
+            root.walkTopDown()
+                .onEnter { it.name !in EXCLUDED_DIRS }
+                .filter { it.name == "indices.json" && isKensaIndicesJson(it, outputDirName) }
+                .toList()
+
+        fun isKensaIndicesJson(indicesJson: File, outputDirName: String): Boolean =
+            classify(indicesJson, outputDirName) != null
+
+        private fun classify(indicesJson: File, outputDirName: String? = null): BundleClassification? {
+            val parent = indicesJson.parentFile ?: return null
+            val grandparent = parent.parentFile
+            val siteRoot = grandparent?.parentFile
+
+            if (grandparent?.name == "sources" && siteRoot != null) {
+                return BundleClassification(
+                    indexHtmlPath = File(siteRoot, "index.html").absolutePath,
+                    sourceId = parent.name,
+                    bundleDir = parent.absolutePath,
+                )
+            }
+
+            if (outputDirName == null || parent.name == outputDirName) {
+                return BundleClassification(
+                    indexHtmlPath = File(parent, "index.html").absolutePath,
+                    sourceId = null,
+                    bundleDir = parent.absolutePath,
+                )
+            }
+
+            return null
+        }
     }
+}
+
+private data class BundleClassification(
+    val indexHtmlPath: String,
+    val sourceId: String?,
+    val bundleDir: String,
+)
+
+private fun String.toTestStatus(): TestStatus? = when (this) {
+    "Passed" -> TestStatus.PASSED
+    "Failed" -> TestStatus.FAILED
+    "Ignored", "Disabled", "Skipped" -> TestStatus.IGNORED
+    else -> null
 }
 
 private data class KensaIndicesRoot(

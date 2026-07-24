@@ -16,6 +16,7 @@ import java.nio.file.Files
 class KensaIndexLoaderTest {
 
     private val projectFixture = projectFixture()
+    private val reopenedProjectFixture = projectFixture()
 
     @Test
     fun `scan walks filesystem and loads indices without VFS`() {
@@ -38,7 +39,7 @@ class KensaIndexLoaderTest {
             """.trimIndent()
         )
 
-        KensaIndexLoader.scan(project, root, "kensa-output")
+        project.service<KensaIndexLoader>().scan(root, "kensa-output")
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.ExternalRun", "sole"))
@@ -69,7 +70,7 @@ class KensaIndexLoaderTest {
         val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(indicesJson)
             ?: error("indices.json not visible to VFS")
 
-        KensaIndexLoader.loadFromFile(project, vFile)
+        project.service<KensaIndexLoader>().loadFromFile(vFile)
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.FirstRun", "sole"))
@@ -91,7 +92,7 @@ class KensaIndexLoaderTest {
             )
         }
 
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.IO", "x"))
@@ -121,7 +122,7 @@ class KensaIndexLoaderTest {
                 }
                 """.trimIndent()
             )
-            KensaIndexLoader.loadFromFile(project, f)
+            project.service<KensaIndexLoader>().loadFromFile(f)
         }
 
         val r = project.service<KensaTestResultsService>()
@@ -144,7 +145,7 @@ class KensaIndexLoaderTest {
                 "children":[{"testMethod":"m","state":"Maybe"}]}]}
                 """.trimIndent()
             )
-            KensaIndexLoader.loadFromFile(project, f)
+            project.service<KensaIndexLoader>().loadFromFile(f)
         }
 
         val r = project.service<KensaTestResultsService>()
@@ -158,7 +159,7 @@ class KensaIndexLoaderTest {
         val tempDir = Files.createTempDirectory("kensa-malformed").toFile()
         File(tempDir, "indices.json").also { f ->
             f.writeText("{not valid json")
-            KensaIndexLoader.loadFromFile(project, f)
+            project.service<KensaIndexLoader>().loadFromFile(f)
         }
 
         val expectedIndexHtml = File(tempDir, "index.html").absolutePath
@@ -177,7 +178,7 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"runs","state":"Passed"}]}]}"""
         )
 
-        KensaIndexLoader.scan(project, tempParent, "kensa-output")
+        project.service<KensaIndexLoader>().scan(tempParent, "kensa-output")
 
         val results = project.service<KensaTestResultsService>()
         val entry = results.getIndexEntry("com.example.SiteOnly", "uiTest")
@@ -204,8 +205,8 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"x","state":"Failed"}]}]}"""
         )
 
-        KensaIndexLoader.loadFromFile(project, File(ui, "indices.json"))
-        KensaIndexLoader.loadFromFile(project, File(acceptance, "indices.json"))
+        project.service<KensaIndexLoader>().loadFromFile(File(ui, "indices.json"))
+        project.service<KensaIndexLoader>().loadFromFile(File(acceptance, "indices.json"))
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Shared", "uiTest"))
@@ -225,7 +226,7 @@ class KensaIndexLoaderTest {
             "children":[]}]}"""
         )
 
-        KensaIndexLoader.loadFromFile(project, File(sourceBundle, "indices.json"))
+        project.service<KensaIndexLoader>().loadFromFile(File(sourceBundle, "indices.json"))
 
         val results = project.service<KensaTestResultsService>()
         val entry = results.getIndexEntry("com.example.NoManifest", "uiTest")
@@ -269,7 +270,7 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"runs","state":"Passed"}]}]}"""
         )
 
-        KensaIndexLoader.scan(project, tempParent, "kensa-output")
+        project.service<KensaIndexLoader>().scan(tempParent, "kensa-output")
 
         val results = project.service<KensaTestResultsService>()
         val entry = results.getIndexEntry("com.example.Renamed", "uiTest")
@@ -299,7 +300,7 @@ class KensaIndexLoaderTest {
         // Pin a deterministic mtime so the load gate ("skip if mtime unchanged") doesn't
         // race the file system's coarse-grained timestamp resolution between the two writes.
         indicesJson.setLastModified(1_700_000_000_000L)
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         val r = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, r.getClassStatus("com.example.Stays"))
@@ -314,7 +315,7 @@ class KensaIndexLoaderTest {
             """.trimIndent()
         )
         indicesJson.setLastModified(1_700_000_001_000L)
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         assertEquals(TestStatus.PASSED, r.getClassStatus("com.example.Stays"))
         assertNull(r.getClassStatus("com.example.Removed"))
@@ -333,7 +334,7 @@ class KensaIndexLoaderTest {
             setLastModified(1_700_000_100_000L)
         }
 
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.MtimeFresh"))
@@ -348,9 +349,31 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"x","state":"Failed"}]}]}"""
         )
         indicesJson.setLastModified(1_700_000_100_000L)
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         assertNull(results.getClassStatus("com.example.MtimeFresh"))
+    }
+
+    @Test
+    fun `a fresh project loads indices already loaded by another project`() {
+        val projectA = projectFixture.get()
+        val projectB = reopenedProjectFixture.get()
+        val tempDir = Files.createTempDirectory("kensa-reopen").toFile()
+        val indicesJson = File(tempDir, "indices.json").apply {
+            writeText(
+                """{"indices":[{"testClass":"com.example.Reopen","state":"Passed",
+                "children":[{"testMethod":"x","state":"Passed"}]}]}"""
+            )
+            setLastModified(1_700_000_300_000L)
+        }
+
+        projectA.service<KensaIndexLoader>().loadFromFile(indicesJson)
+        assertEquals(TestStatus.PASSED, projectA.service<KensaTestResultsService>().getClassStatus("com.example.Reopen"))
+
+        // Simulates close + reopen (or a second window on the same directory): the fresh
+        // project's results service is empty, so the mtime gate must not skip this load.
+        projectB.service<KensaIndexLoader>().loadFromFile(indicesJson)
+        assertEquals(TestStatus.PASSED, projectB.service<KensaTestResultsService>().getClassStatus("com.example.Reopen"))
     }
 
     @Test
@@ -396,7 +419,7 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"y","state":"Failed"}]}]}"""
         )
 
-        KensaIndexLoader.probeBuildDir(project, buildDir, "kensa-output")
+        project.service<KensaIndexLoader>().probeBuildDir(buildDir, "kensa-output")
 
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getMethodStatus("com.example.SingleProbe", "x"))
@@ -415,7 +438,7 @@ class KensaIndexLoaderTest {
             setLastModified(1_700_000_200_000L)
         }
 
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
         val results = project.service<KensaTestResultsService>()
         assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Advance"))
 
@@ -424,7 +447,7 @@ class KensaIndexLoaderTest {
             "children":[{"testMethod":"x","state":"Failed"}]}]}"""
         )
         indicesJson.setLastModified(1_700_000_201_000L)
-        KensaIndexLoader.loadFromFile(project, indicesJson)
+        project.service<KensaIndexLoader>().loadFromFile(indicesJson)
 
         assertEquals(TestStatus.FAILED, results.getClassStatus("com.example.Advance"))
     }

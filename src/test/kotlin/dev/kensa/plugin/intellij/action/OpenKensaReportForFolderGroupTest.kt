@@ -125,7 +125,7 @@ class OpenKensaReportForFolderGroupTest {
             "children":[{"testMethod":"m","state":"Passed"}]}]}"""
         )
 
-        dev.kensa.plugin.intellij.gutter.KensaIndexLoader.scan(project, tmp, "kensa-output")
+        project.service<dev.kensa.plugin.intellij.gutter.KensaIndexLoader>().scan(tmp, "kensa-output")
 
         val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tmp)
             ?: error("temp dir not visible to VFS")
