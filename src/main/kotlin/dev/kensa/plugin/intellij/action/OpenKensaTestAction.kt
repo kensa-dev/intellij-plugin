@@ -93,7 +93,12 @@ class OpenKensaTestAction : AnAction() {
             return
         }
 
-        val sourceId = KensaSourceSetResolver.resolveForClass(project, classFqn)
+        // actionPerformed runs on the EDT with no read action (unlike update(), which the platform
+        // runs under one because getActionUpdateThread() is BGT), so both model reads below -- the
+        // source-set resolve and the PsiManager lookup -- have to take their own.
+        val sourceId = ApplicationManager.getApplication().runReadAction(
+            Computable { KensaSourceSetResolver.resolveForClass(project, classFqn) }
+        )
         val entry = project.service<KensaTestResultsService>().getIndexEntry(classFqn, sourceId) ?: run {
             Messages.showInfoMessage(
                 project,
@@ -136,7 +141,11 @@ class OpenKensaTestAction : AnAction() {
     }
 
     private fun String.asPsiFileIn(project: Project): PsiFile? =
-        LocalFileSystem.getInstance().findFileByPath(this)?.let { PsiManager.getInstance(project).findFile(it) }
+        LocalFileSystem.getInstance().findFileByPath(this)?.let { vFile ->
+            ApplicationManager.getApplication().runReadAction(
+                Computable { PsiManager.getInstance(project).findFile(vFile) }
+            )
+        }
 
     private fun createOpenInBrowserRequest(element: PsiElement): OpenInBrowserRequest? {
         val psiFile = ApplicationManager.getApplication().runReadAction(Computable {

@@ -1,10 +1,12 @@
 package dev.kensa.plugin.intellij.statusbar
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.CustomStatusBarWidget
 import com.intellij.openapi.wm.StatusBar
@@ -156,11 +158,16 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
         ListPopupImpl(project, step).show(RelativePoint(event))
     }
 
-    private fun labelFor(indexHtmlPath: String): String {
+    // Both callers reach this from the EDT holding no read action -- showPicker() from the click
+    // listener, tooltip() from refresh()'s invokeLater -- so the ProjectFileIndex lookup must take
+    // its own. Read actions are re-entrant, so this stays correct if a caller ever already holds one.
+    internal fun labelFor(indexHtmlPath: String): String {
         val vFile = LocalFileSystem.getInstance().findFileByPath(indexHtmlPath)
         val moduleRoot = vFile?.parent?.parent
         if (moduleRoot != null) {
-            val module = ProjectFileIndex.getInstance(project).getModuleForFile(moduleRoot)
+            val module = ApplicationManager.getApplication().runReadAction(
+                Computable { ProjectFileIndex.getInstance(project).getModuleForFile(moduleRoot) }
+            )
             if (module != null) return module.name
         }
         val basePath = project.basePath
