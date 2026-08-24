@@ -3,6 +3,10 @@
 # Kensa IntelliJ Plugin Changelog
 
 ## [Unreleased]
+### Fixed
+- Clicking the status bar widget in a project with multiple `kensa-output` reports no longer throws "Read access is allowed from inside read-action only" and aborts the report picker popup. The widget's module-name lookup (`ProjectFileIndex.getModuleForFile`) ran on the EDT without a read action; it now takes one. The same fix is applied to the source-set resolve and `PsiManager` lookup in the "Open Kensa Test" context-menu action.
+
+## [0.8.4] - 2026-08-16
 ### Added
 - Right-click a gutter icon to open the **CI** report. Left-click still opens the local report in a single click; when a CI report URL template is configured (Settings → Tools → Kensa), the gutter icon's right-click menu now offers "Open Local Report" and "Open CI Report", and its tooltip advertises the CI option. Previously the local/CI chooser lived only on the Alt+Enter intention menu, which devs rarely discovered, so a configured CI template appeared to do nothing — the gutter always jumped straight to the local report. `KensaGutterLineMarkerProvider` supplies the chooser through the gutter renderer's `getPopupMenuActions()`, so the fast local path is unchanged.
 
