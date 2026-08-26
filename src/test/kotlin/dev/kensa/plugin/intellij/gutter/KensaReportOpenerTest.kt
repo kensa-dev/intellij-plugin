@@ -1,10 +1,12 @@
 package dev.kensa.plugin.intellij.gutter
 
 import com.intellij.openapi.components.service
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import dev.kensa.plugin.intellij.settings.KensaSettings
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -90,6 +92,22 @@ class KensaReportOpenerTest {
         assertEquals(2, actions.size)
         assertEquals("Open Local Report", actions[0].templatePresentation.text)
         assertEquals("Open CI Report", actions[1].templatePresentation.text)
+    }
+
+    @Test
+    fun `resolveReportFile finds a report written after its parent dir was cached in VFS`() {
+        // A CLI test run writes the report under the excluded build dir. VFS caches that dir's
+        // child list the first time anything touches it, and the native watcher never refreshes
+        // excluded dirs — so a report written afterwards stays invisible unless the opener
+        // refreshes the path from disk.
+        val tempDir = Files.createTempDirectory("kensa-opener-vfs").toFile()
+        val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(tempDir)
+            ?: error("temp dir not visible to VFS")
+        vDir.children
+
+        val indexHtml = File(tempDir, "index.html").apply { writeText("<html/>") }
+
+        assertNotNull(KensaReportOpener.resolveReportFile(indexHtml.absolutePath))
     }
 
     @Test

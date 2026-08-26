@@ -137,6 +137,12 @@ fun buildKensaRoute(classFqn: String, methodName: String?, sourceId: String?): S
 
 object KensaReportOpener {
 
+    // Reports from CLI test runs live under excluded build dirs, which the native file watcher
+    // never refreshes -- a plain findFileByPath can see a stale child list and return null, so
+    // the path must be refreshed from disk.
+    internal fun resolveReportFile(path: String): com.intellij.openapi.vfs.VirtualFile? =
+        LocalFileSystem.getInstance().refreshAndFindFileByPath(path)
+
     fun openLocal(mouseEvent: MouseEvent?, project: Project, classFqn: String, methodName: String?) {
         openLocal(mouseEvent, project, classFqn, methodName, fileSourceId = null)
     }
@@ -178,7 +184,7 @@ object KensaReportOpener {
     }
 
     fun openIndexHtml(project: Project, indexHtmlPath: String) {
-        val vFile = LocalFileSystem.getInstance().findFileByPath(indexHtmlPath) ?: return
+        val vFile = resolveReportFile(indexHtmlPath) ?: return
         val psiFile = ApplicationManager.getApplication()
             .runReadAction(Computable { PsiManager.getInstance(project).findFile(vFile) }) ?: return
         val request = object : OpenInBrowserRequest(psiFile, true) {
@@ -200,7 +206,7 @@ object KensaReportOpener {
         methodName: String?,
         sourceId: String?,
     ) {
-        val vFile = LocalFileSystem.getInstance().findFileByPath(indexPath) ?: return
+        val vFile = resolveReportFile(indexPath) ?: return
         val psiFile = ApplicationManager.getApplication()
             .runReadAction(Computable { PsiManager.getInstance(project).findFile(vFile) }) ?: return
 

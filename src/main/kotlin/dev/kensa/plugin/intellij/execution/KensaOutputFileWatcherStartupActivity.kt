@@ -3,9 +3,6 @@ package dev.kensa.plugin.intellij.execution
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.ide.ActivityTracker
-import com.intellij.ide.browsers.BrowserLauncher
-import com.intellij.ide.browsers.OpenInBrowserRequest
-import com.intellij.ide.browsers.WebBrowserService
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -18,11 +15,10 @@ import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.concurrency.AppExecutorUtil
+import dev.kensa.plugin.intellij.gutter.KensaReportOpener
 import dev.kensa.plugin.intellij.gutter.KensaResultsListener
 import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
 import java.util.concurrent.TimeUnit
-import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiManager
 import com.intellij.openapi.components.service
 import dev.kensa.plugin.intellij.gutter.KensaIndexLoader
 import dev.kensa.plugin.intellij.settings.KensaSettings
@@ -159,20 +155,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
 
         override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent, notification: com.intellij.notification.Notification) {
             notification.expire()
-
-            val vFile = LocalFileSystem.getInstance().findFileByPath(indexPath) ?: return
-            val psiFile = ApplicationManager.getApplication().runReadAction(Computable { PsiManager.getInstance(project).findFile(vFile) }) ?: return
-
-            val request = object : OpenInBrowserRequest(psiFile, true) {
-                override val element: PsiElement = psiFile
-            }
-
-            try {
-                val urls = WebBrowserService.getInstance().getUrlsToOpen(request, false)
-                BrowserLauncher.instance.browse(urls.first().toExternalForm(), null, project)
-            } catch (ex: Exception) {
-                thisLogger().error(ex)
-            }
+            KensaReportOpener.openIndexHtml(project, indexPath)
         }
     }
 }
