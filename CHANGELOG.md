@@ -4,6 +4,7 @@
 
 ## [Unreleased]
 ### Fixed
+- "Open Report" in the notification balloon (and the status bar and gutter report openers) did nothing after a test run from the terminal. CLI-run reports land under the excluded `build/` dir, which the native file watcher never refreshes, and the openers resolved the report with `LocalFileSystem.findFileByPath` — a cache-only lookup that returned null against the stale VFS view, so the click silently aborted before reaching the browser. All report-open paths now share one resolver that uses `refreshAndFindFileByPath` to re-read the path from disk. (IDE-run builds were unaffected because the IDE refreshes VFS when the run process exits.)
 - Clicking the status bar widget in a project with multiple `kensa-output` reports no longer throws "Read access is allowed from inside read-action only" and aborts the report picker popup. The widget's module-name lookup (`ProjectFileIndex.getModuleForFile`) ran on the EDT without a read action; it now takes one. The same fix is applied to the source-set resolve and `PsiManager` lookup in the "Open Kensa Test" context-menu action.
 
 ## [0.8.4] - 2026-08-16
