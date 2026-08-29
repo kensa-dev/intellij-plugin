@@ -40,8 +40,17 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
             com.intellij.openapi.util.IconLoader.getIcon(path, KensaStatusBarWidget::class.java)
 
         internal fun runningText(entries: List<RunStateEntry>): String {
-            val classes = entries.filter { it.phase == RunPhase.RUNNING }.sumOf { it.classesWritten }
-            return "running, $classes ${if (classes == 1) "class" else "classes"}"
+            val running = entries.filter { it.phase == RunPhase.RUNNING }
+            val classes = running.sumOf { it.classesWritten }
+            val text = StringBuilder("running, $classes ${if (classes == 1) "class" else "classes"}")
+            // Method counts only exist in markers from kensa-core 0.9.2 onwards.
+            val counted = running.filter { it.passed != null }
+            if (counted.isNotEmpty()) {
+                text.append(", ${counted.sumOf { it.passed ?: 0 }} passed, ${counted.sumOf { it.failed ?: 0 }} failed")
+                val disabled = counted.sumOf { it.disabled ?: 0 }
+                if (disabled > 0) text.append(", $disabled disabled")
+            }
+            return text.toString()
         }
 
         internal fun abandonedTooltip(entries: List<RunStateEntry>): String {

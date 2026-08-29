@@ -41,6 +41,36 @@ class KensaRunMarkerTest {
     }
 
     @Test
+    fun `reads live counts from the marker`() {
+        val bundle = tempBundle()
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":12345,"finishedAt":null,"classes":12,"passed":40,"failed":1,"disabled":3}"""
+        )
+
+        val marker = KensaRunMarker.read(bundle)!!
+
+        assertEquals(12, marker.classes)
+        assertEquals(40, marker.passed)
+        assertEquals(1, marker.failed)
+        assertEquals(3, marker.disabled)
+    }
+
+    @Test
+    fun `live counts are null when the marker has none`() {
+        val bundle = tempBundle()
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":12345,"finishedAt":null}"""
+        )
+
+        val marker = KensaRunMarker.read(bundle)!!
+
+        assertNull(marker.classes)
+        assertNull(marker.passed)
+        assertNull(marker.failed)
+        assertNull(marker.disabled)
+    }
+
+    @Test
     fun `returns null when run json is absent`() {
         assertNull(KensaRunMarker.read(tempBundle()))
     }

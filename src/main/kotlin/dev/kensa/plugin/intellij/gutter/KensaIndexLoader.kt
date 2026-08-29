@@ -92,7 +92,10 @@ class KensaIndexLoader(private val project: Project) {
                 phase = marker.phase(isPidAlive),
                 startedAt = marker.startedAt,
                 pid = marker.pid,
-                classesWritten = KensaRunMarker.classesWritten(bundleDir),
+                classesWritten = marker.classes ?: KensaRunMarker.classesWritten(bundleDir),
+                passed = marker.passed,
+                failed = marker.failed,
+                disabled = marker.disabled,
             )
         )
     }

@@ -563,6 +563,27 @@ class KensaIndexLoaderTest {
     }
 
     @Test
+    fun `probeRunMarker prefers the marker's counts over the results directory`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-probe-live-counts").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"x","pid":1,"finishedAt":null,"classes":12,"passed":40,"failed":1,"disabled":3}"""
+        )
+        File(bundle, "results").apply { mkdirs() }.also {
+            File(it, "com.example.A.json").writeText("{}")
+        }
+
+        project.service<KensaIndexLoader>().probeRunMarker(bundle) { true }
+
+        val entry = project.service<KensaTestResultsService>().activeRuns().single()
+        assertEquals(12, entry.classesWritten)
+        assertEquals(40, entry.passed)
+        assertEquals(1, entry.failed)
+        assertEquals(3, entry.disabled)
+    }
+
+    @Test
     fun `refreshRunStates reclassifies a running bundle whose process died`() {
         val project = projectFixture.get()
         val bundle = Files.createTempDirectory("kensa-refresh").toFile()

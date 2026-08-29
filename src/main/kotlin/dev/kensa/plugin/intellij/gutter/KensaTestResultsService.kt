@@ -28,6 +28,9 @@ data class RunStateEntry(
     val startedAt: String?,
     val pid: Long?,
     val classesWritten: Int,
+    val passed: Int? = null,
+    val failed: Int? = null,
+    val disabled: Int? = null,
 )
 
 @Service(PROJECT)

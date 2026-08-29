@@ -75,6 +75,32 @@ class KensaStatusBarWidgetTest {
     }
 
     @Test
+    fun `running text shows method counts when the marker carries them`() {
+        val entries = listOf(
+            RunStateEntry("/a/kensa-output", RunPhase.RUNNING, null, 1, 12, passed = 40, failed = 1, disabled = 3),
+        )
+        assertEquals("running, 12 classes, 40 passed, 1 failed, 3 disabled", KensaStatusBarWidget.runningText(entries))
+    }
+
+    @Test
+    fun `running text omits disabled when there are none`() {
+        val entries = listOf(
+            RunStateEntry("/a/kensa-output", RunPhase.RUNNING, null, 1, 12, passed = 40, failed = 1, disabled = 0),
+        )
+        assertEquals("running, 12 classes, 40 passed, 1 failed", KensaStatusBarWidget.runningText(entries))
+    }
+
+    @Test
+    fun `running text sums method counts across running bundles`() {
+        val entries = listOf(
+            RunStateEntry("/a/kensa-output", RunPhase.RUNNING, null, 1, 3, passed = 10, failed = 1, disabled = 0),
+            RunStateEntry("/b/kensa-output", RunPhase.RUNNING, null, 2, 2, passed = 5, failed = 0, disabled = 2),
+            RunStateEntry("/c/kensa-output", RunPhase.ABANDONED, null, 3, 1, passed = 99, failed = 99, disabled = 99),
+        )
+        assertEquals("running, 5 classes, 15 passed, 1 failed, 2 disabled", KensaStatusBarWidget.runningText(entries))
+    }
+
+    @Test
     fun `abandoned tooltip names the start time and pid`() {
         val entries = listOf(
             RunStateEntry("/a/kensa-output", RunPhase.ABANDONED, "2026-08-27T10:15:30.00Z", 12345, 2),
