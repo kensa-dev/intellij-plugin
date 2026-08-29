@@ -107,4 +107,71 @@ class KensaVfsListenerTest {
 
         assertTrue(executor.queued.isEmpty())
     }
+
+    @Test
+    fun `run marker events are handled on the executor`() {
+        val project = projectFixture.get()
+        val tmp = Files.createTempDirectory("kensa-vfs-run-marker").toFile()
+        val bundle = File(tmp, "build/kensa-output").apply { mkdirs() }
+        val runJson = File(bundle, "run.json").apply {
+            writeText("""{"startedAt":"2026-08-27T10:15:30.00Z","pid":${ProcessHandle.current().pid()},"finishedAt":null}""")
+        }
+        val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(runJson)
+            ?: error("run.json not visible to VFS")
+
+        val executor = ManualExecutor()
+        val listener = KensaVfsListener(project, tmp.absolutePath, executor)
+        listener.after(listOf(VFileContentChangeEvent(null, vFile, 0, 1)))
+
+        val results = project.service<KensaTestResultsService>()
+        assertTrue(results.activeRuns().isEmpty())
+
+        executor.drain()
+        assertEquals(dev.kensa.plugin.intellij.gutter.RunPhase.RUNNING, results.activeRuns().single().phase)
+    }
+
+    @Test
+    fun `a finished run marker event loads the indices`() {
+        val project = projectFixture.get()
+        val tmp = Files.createTempDirectory("kensa-vfs-run-finish").toFile()
+        val bundle = File(tmp, "build/kensa-output").apply { mkdirs() }
+        File(bundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.MarkerDone","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+        val runJson = File(bundle, "run.json").apply {
+            writeText("""{"startedAt":"x","pid":1,"finishedAt":"2026-08-27T10:16:02.00Z"}""")
+        }
+        val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(runJson)
+            ?: error("run.json not visible to VFS")
+
+        val executor = ManualExecutor()
+        val listener = KensaVfsListener(project, tmp.absolutePath, executor)
+        listener.after(listOf(VFileContentChangeEvent(null, vFile, 0, 1)))
+        executor.drain()
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.MarkerDone"))
+        assertTrue(results.activeRuns().isEmpty())
+    }
+
+    @Test
+    fun `run markers outside a bundle-shaped dir are ignored`() {
+        val project = projectFixture.get()
+        val tmp = Files.createTempDirectory("kensa-vfs-run-shape").toFile()
+        // Default output dir name is "kensa-output"; "scratch" is not a bundle dir.
+        val notABundle = File(tmp, "build/scratch").apply { mkdirs() }
+        val runJson = File(notABundle, "run.json").apply {
+            writeText("""{"startedAt":"x","pid":1,"finishedAt":null}""")
+        }
+        val vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(runJson)
+            ?: error("run.json not visible to VFS")
+
+        val executor = ManualExecutor()
+        val listener = KensaVfsListener(project, tmp.absolutePath, executor)
+        listener.after(listOf(VFileContentChangeEvent(null, vFile, 0, 1)))
+        executor.drain()
+
+        assertTrue(project.service<KensaTestResultsService>().activeRuns().isEmpty())
+    }
 }

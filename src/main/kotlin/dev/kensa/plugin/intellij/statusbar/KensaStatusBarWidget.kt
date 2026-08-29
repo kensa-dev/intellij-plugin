@@ -19,6 +19,8 @@ import com.intellij.util.ui.JBUI
 import dev.kensa.plugin.intellij.gutter.KensaReportOpener
 import dev.kensa.plugin.intellij.gutter.KensaResultsListener
 import dev.kensa.plugin.intellij.gutter.KensaTestResultsService
+import dev.kensa.plugin.intellij.gutter.RunPhase
+import dev.kensa.plugin.intellij.gutter.RunStateEntry
 import java.awt.Cursor
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -36,6 +38,25 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
 
         private fun loadIcon(path: String): Icon =
             com.intellij.openapi.util.IconLoader.getIcon(path, KensaStatusBarWidget::class.java)
+
+        internal fun runningText(entries: List<RunStateEntry>): String {
+            val classes = entries.filter { it.phase == RunPhase.RUNNING }.sumOf { it.classesWritten }
+            return "running, $classes ${if (classes == 1) "class" else "classes"}"
+        }
+
+        internal fun abandonedTooltip(entries: List<RunStateEntry>): String {
+            val entry = entries.first { it.phase == RunPhase.ABANDONED }
+            val started = entry.startedAt?.let { raw ->
+                runCatching {
+                    java.time.Instant.parse(raw)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                }.getOrNull()
+            }
+            val startedText = started?.let { "started $it" } ?: "started"
+            val pidText = entry.pid?.let { " (process $it gone)" } ?: ""
+            return "Kensa run $startedText never completed$pidText; re-run the tests"
+        }
     }
 
     private var statusBar: StatusBar? = null
@@ -56,6 +77,13 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
     private val multiLabel = JBLabel().apply {
         foreground = JBColor.GRAY
         border = JBUI.Borders.emptyLeft(4)
+    }
+    private val runningLabel = JBLabel(com.intellij.ui.AnimatedIcon.Default()).apply {
+        horizontalTextPosition = SwingConstants.RIGHT
+        iconTextGap = 4
+    }
+    private val abandonedLabel = JBLabel(com.intellij.icons.AllIcons.General.Warning).apply {
+        border = JBUI.Borders.emptyLeft(6)
     }
 
     override fun ID(): String = ID
@@ -79,27 +107,44 @@ class KensaStatusBarWidget(private val project: Project) : CustomStatusBarWidget
         com.intellij.openapi.application.invokeLater {
             if (project.isDisposed) return@invokeLater
             val service = project.service<KensaTestResultsService>()
+            val active = service.activeRuns()
+            val running = active.filter { it.phase == RunPhase.RUNNING }
+            val abandoned = active.filter { it.phase == RunPhase.ABANDONED }
             val snap = service.snapshot()
             panel.removeAll()
-            if (!snap.isEmpty) {
-                passedLabel.text = snap.passed.toString()
-                panel.add(passedLabel)
-                if (snap.failed > 0) {
-                    failedLabel.text = snap.failed.toString()
-                    panel.add(failedLabel)
+            when {
+                running.isNotEmpty() -> {
+                    runningLabel.text = runningText(active)
+                    panel.add(runningLabel)
+                    panel.toolTipText = "Kensa test run in progress"
                 }
-                if (snap.ignored > 0) {
-                    ignoredLabel.text = snap.ignored.toString()
-                    panel.add(ignoredLabel)
+                else -> {
+                    if (!snap.isEmpty) {
+                        passedLabel.text = snap.passed.toString()
+                        panel.add(passedLabel)
+                        if (snap.failed > 0) {
+                            failedLabel.text = snap.failed.toString()
+                            panel.add(failedLabel)
+                        }
+                        if (snap.ignored > 0) {
+                            ignoredLabel.text = snap.ignored.toString()
+                            panel.add(ignoredLabel)
+                        }
+                        val indexCount = service.allIndexPaths().size
+                        if (indexCount > 1) {
+                            multiLabel.text = "($indexCount)"
+                            panel.add(multiLabel)
+                        }
+                        panel.toolTipText = tooltip(service)
+                    } else {
+                        panel.toolTipText = null
+                    }
+                    if (abandoned.isNotEmpty()) {
+                        abandonedLabel.toolTipText = abandonedTooltip(abandoned)
+                        panel.add(abandonedLabel)
+                        if (snap.isEmpty) panel.toolTipText = abandonedTooltip(abandoned)
+                    }
                 }
-                val indexCount = service.allIndexPaths().size
-                if (indexCount > 1) {
-                    multiLabel.text = "($indexCount)"
-                    panel.add(multiLabel)
-                }
-                panel.toolTipText = tooltip(service)
-            } else {
-                panel.toolTipText = null
             }
             panel.revalidate()
             panel.repaint()

@@ -357,4 +357,68 @@ class KensaTestResultsServiceTest {
         assertNotNull(results.latestIndexPath)
         assertEquals("/latest/index.html", results.getIndexPath("com.example.LatestPath"))
     }
+
+    @Test
+    fun `stores and clears active run states`() {
+        val service = projectFixture.get().service<KensaTestResultsService>()
+        val entry = RunStateEntry(
+            bundleDir = "/tmp/some/kensa-output",
+            phase = RunPhase.RUNNING,
+            startedAt = "2026-08-27T10:15:30.00Z",
+            pid = 123,
+            classesWritten = 2,
+        )
+
+        service.updateRunState(entry)
+        assertEquals(listOf(entry), service.activeRuns())
+
+        service.clearRunState("/tmp/some/kensa-output")
+        assertTrue(service.activeRuns().isEmpty())
+    }
+
+    @Test
+    fun `bundleDirs includes dirs known only from a run state`() {
+        val service = projectFixture.get().service<KensaTestResultsService>()
+        service.updateRunState(
+            RunStateEntry("/tmp/running/kensa-output", RunPhase.RUNNING, null, null, 0)
+        )
+        assertTrue(service.bundleDirs().contains("/tmp/running/kensa-output"))
+    }
+
+    @Test
+    fun `updating a run state replaces the previous entry for the same bundle`() {
+        val service = projectFixture.get().service<KensaTestResultsService>()
+        val first = RunStateEntry("/tmp/r/kensa-output", RunPhase.RUNNING, "t", 1, 1)
+        service.updateRunState(first)
+        service.updateRunState(first.copy(classesWritten = 3))
+        assertEquals(3, service.activeRuns().single().classesWritten)
+    }
+
+    @Test
+    fun `pruneMissingFiles drops run states whose bundle dir is gone`() {
+        val service = projectFixture.get().service<KensaTestResultsService>()
+        val realDir = java.nio.file.Files.createTempDirectory("kensa-run-state").toFile()
+        service.updateRunState(RunStateEntry(realDir.absolutePath, RunPhase.RUNNING, null, null, 0))
+        service.updateRunState(RunStateEntry("/tmp/definitely-gone/kensa-output", RunPhase.RUNNING, null, null, 0))
+
+        service.pruneMissingFiles()
+
+        assertEquals(listOf(realDir.absolutePath), service.activeRuns().map { it.bundleDir })
+    }
+
+    @Test
+    fun `updateRunState publishes a null index html path`() {
+        val project = projectFixture.get()
+        val service = project.service<KensaTestResultsService>()
+        val received = mutableListOf<String?>()
+        project.messageBus.connect(disposableFixture.get()).subscribe(
+            KensaTestResultsService.KENSA_RESULTS_TOPIC,
+            KensaResultsListener { path -> received.add(path) },
+        )
+
+        service.updateRunState(RunStateEntry("/tmp/run-state-topic/kensa-output", RunPhase.RUNNING, null, null, 0))
+        flushEdt()
+
+        assertEquals(listOf(null), received)
+    }
 }

@@ -22,6 +22,14 @@ data class IndexEntry(
 
 data class ResultKey(val classFqn: String, val sourceId: String?)
 
+data class RunStateEntry(
+    val bundleDir: String,
+    val phase: RunPhase,
+    val startedAt: String?,
+    val pid: Long?,
+    val classesWritten: Int,
+)
+
 @Service(PROJECT)
 class KensaTestResultsService(private val project: Project) {
 
@@ -36,6 +44,7 @@ class KensaTestResultsService(private val project: Project) {
     private val classResults = ConcurrentHashMap<ResultKey, TestStatus>()
     private val indexEntries = ConcurrentHashMap<ResultKey, IndexEntry>()
     private val indexPathUpdatedAt = ConcurrentHashMap<String, Long>()
+    private val runStates = ConcurrentHashMap<String, RunStateEntry>()
 
     @Volatile
     var latestIndexPath: String? = null
@@ -97,8 +106,8 @@ class KensaTestResultsService(private val project: Project) {
 
     fun allIndexPaths(): Set<String> = indexEntries.values.map { it.indexHtmlPath }.toSet()
 
-    /** Directories holding a discovered `indices.json`, used to register native file-watches. */
-    fun bundleDirs(): Set<String> = indexEntries.values.map { it.bundleDir }.toSet()
+    /** Directories holding a discovered `indices.json` or an active run, used to register native file-watches. */
+    fun bundleDirs(): Set<String> = indexEntries.values.map { it.bundleDir }.toSet() + runStates.keys
 
     fun indexPathsByRecency(): List<String> =
         indexPathUpdatedAt.entries
@@ -170,12 +179,18 @@ class KensaTestResultsService(private val project: Project) {
     }
 
     fun pruneMissingFiles() {
+        val staleRuns = runStates.keys.filter { !java.io.File(it).exists() }
+        staleRuns.forEach { runStates.remove(it) }
+
         val staleByPath = indexEntries.values
             .filter { entry ->
                 !java.io.File(entry.indexHtmlPath).exists() || !java.io.File(entry.bundleDir).exists()
             }
             .toSet()
-        if (staleByPath.isEmpty()) return
+        if (staleByPath.isEmpty()) {
+            if (staleRuns.isNotEmpty()) publishRunStateChange()
+            return
+        }
         staleByPath.forEach { entry -> clearForBundle(entry.indexHtmlPath, entry.sourceId) }
         if (latestIndexPath?.let { !java.io.File(it).exists() } == true) {
             latestIndexPath = indexPathsByRecency().firstOrNull()
@@ -225,6 +240,25 @@ class KensaTestResultsService(private val project: Project) {
     fun updateClass(classFqn: String, status: TestStatus) {
         classResults[ResultKey(classFqn, null)] = status
         refreshMarkers()
+    }
+
+    fun updateRunState(entry: RunStateEntry) {
+        val previous = runStates.put(entry.bundleDir, entry)
+        if (previous != entry) publishRunStateChange()
+    }
+
+    fun clearRunState(bundleDir: String) {
+        if (runStates.remove(bundleDir) != null) publishRunStateChange()
+    }
+
+    fun activeRuns(): List<RunStateEntry> = runStates.values.toList()
+
+    private fun publishRunStateChange() {
+        invokeLater {
+            if (!project.isDisposed) {
+                project.messageBus.syncPublisher(KENSA_RESULTS_TOPIC).resultsUpdated(null)
+            }
+        }
     }
 
     fun refreshMarkers(indexHtmlPath: String? = null) {

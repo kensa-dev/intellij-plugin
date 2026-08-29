@@ -23,6 +23,7 @@ class KensaIndexLoader(private val project: Project) {
 
     fun loadFromFile(indicesJson: VirtualFile) {
         val classification = classify(File(indicesJson.path)) ?: return
+        if (deferToUnfinishedRun(classification)) return
         val key = indicesJson.path
         val mtime = indicesJson.timeStamp
         if (!shouldLoad(key, mtime)) return
@@ -32,11 +33,68 @@ class KensaIndexLoader(private val project: Project) {
 
     fun loadFromFile(indicesJson: File) {
         val classification = classify(indicesJson) ?: return
+        if (deferToUnfinishedRun(classification)) return
         val key = indicesJson.absolutePath
         val mtime = indicesJson.lastModified()
         if (!shouldLoad(key, mtime)) return
         val json = indicesJson.readText()
         loadJson(classification, json, indicesJson.absolutePath)
+    }
+
+    /**
+     * kensa-core 0.9.2 writes `indices.json` before `index.html` and the rest of the report; the
+     * bundle's own `run.json` says when everything is on disk. While it reports an unfinished run,
+     * record the run state and defer the load — the marker's finish rewrite triggers it. Bundles
+     * with no marker (pre-0.9.2) load exactly as before.
+     */
+    private fun deferToUnfinishedRun(classification: BundleClassification): Boolean {
+        val bundleDir = File(classification.bundleDir)
+        val marker = KensaRunMarker.read(bundleDir) ?: return false
+        if (marker.isFinished) return false
+        recordRunState(bundleDir, marker, ::defaultIsPidAlive)
+        return true
+    }
+
+    fun probeRunMarker(
+        bundleDir: File,
+        isPidAlive: (Long) -> Boolean = ::defaultIsPidAlive,
+    ) {
+        val service = project.service<KensaTestResultsService>()
+        val marker = KensaRunMarker.read(bundleDir)
+        if (marker == null) {
+            service.clearRunState(bundleDir.absolutePath)
+            return
+        }
+        if (marker.isFinished) {
+            service.clearRunState(bundleDir.absolutePath)
+            File(bundleDir, "indices.json").let { if (it.isFile) loadFromFile(it) }
+        } else {
+            recordRunState(bundleDir, marker, isPidAlive)
+        }
+    }
+
+    /** Re-probe every active run: picks up crashed processes and fresh class counts without VFS events. */
+    fun refreshRunStates(
+        isPidAlive: (Long) -> Boolean = ::defaultIsPidAlive,
+    ) {
+        project.service<KensaTestResultsService>().activeRuns().forEach { entry ->
+            probeRunMarker(File(entry.bundleDir), isPidAlive)
+        }
+    }
+
+    private fun defaultIsPidAlive(pid: Long): Boolean =
+        ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
+
+    private fun recordRunState(bundleDir: File, marker: KensaRunMarker, isPidAlive: (Long) -> Boolean) {
+        project.service<KensaTestResultsService>().updateRunState(
+            RunStateEntry(
+                bundleDir = bundleDir.absolutePath,
+                phase = marker.phase(isPidAlive),
+                startedAt = marker.startedAt,
+                pid = marker.pid,
+                classesWritten = KensaRunMarker.classesWritten(bundleDir),
+            )
+        )
     }
 
     fun scan(root: File, outputDirName: String) {
@@ -58,11 +116,17 @@ class KensaIndexLoader(private val project: Project) {
             File(reportDir, "indices.json").let { single ->
                 if (single.isFile && isKensaIndicesJson(single, outputDirName)) loadFromFile(single)
             }
+            if (File(reportDir, "run.json").isFile && isKensaBundleDir(reportDir, outputDirName)) {
+                probeRunMarker(reportDir)
+            }
             File(reportDir, "sources").listFiles { f -> f.isDirectory }?.forEach { source ->
                 File(source, "indices.json").let { siteIndices ->
                     if (siteIndices.isFile && isKensaIndicesJson(siteIndices, outputDirName)) {
                         loadFromFile(siteIndices)
                     }
+                }
+                if (File(source, "run.json").isFile && isKensaBundleDir(source, outputDirName)) {
+                    probeRunMarker(source)
                 }
             }
         }
@@ -107,6 +171,7 @@ class KensaIndexLoader(private val project: Project) {
                 )
             }
             service.notifyIndexLoaded(classification.indexHtmlPath)
+            service.clearRunState(classification.bundleDir)
         } catch (e: Exception) {
             log.warn("Failed to parse Kensa indices.json at $sourceForLog", e)
         }
@@ -132,6 +197,10 @@ class KensaIndexLoader(private val project: Project) {
 
         fun isKensaIndicesJson(indicesJson: File, outputDirName: String): Boolean =
             classify(indicesJson, outputDirName) != null
+
+        /** Same bundle-shape check as [isKensaIndicesJson], for a directory rather than the file. */
+        fun isKensaBundleDir(dir: File, outputDirName: String): Boolean =
+            classify(File(dir, "indices.json"), outputDirName) != null
 
         private fun classify(indicesJson: File, outputDirName: String? = null): BundleClassification? {
             val parent = indicesJson.parentFile ?: return null

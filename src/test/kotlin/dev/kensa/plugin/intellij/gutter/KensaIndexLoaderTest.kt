@@ -451,4 +451,179 @@ class KensaIndexLoaderTest {
 
         assertEquals(TestStatus.FAILED, results.getClassStatus("com.example.Advance"))
     }
+
+    @Test
+    fun `skips loading while a sibling run marker is unfinished`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-gate").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.InFlight","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":${ProcessHandle.current().pid()},"finishedAt":null}"""
+        )
+
+        project.service<KensaIndexLoader>().loadFromFile(File(bundle, "indices.json"))
+
+        val results = project.service<KensaTestResultsService>()
+        assertNull(results.getClassStatus("com.example.InFlight"))
+        assertEquals(RunPhase.RUNNING, results.activeRuns().single().phase)
+    }
+
+    @Test
+    fun `loads once the marker is finished and clears the run state`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-gate-finish").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.Finished","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":${ProcessHandle.current().pid()},"finishedAt":null}"""
+        )
+        val loader = project.service<KensaIndexLoader>()
+        loader.loadFromFile(File(bundle, "indices.json"))
+
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":${ProcessHandle.current().pid()},"finishedAt":"2026-08-27T10:16:02.00Z"}"""
+        )
+        loader.loadFromFile(File(bundle, "indices.json"))
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Finished"))
+        assertTrue(results.activeRuns().isEmpty())
+    }
+
+    @Test
+    fun `loads normally when no run marker exists`() {
+        // Pre-0.9.2 bundle: behavior unchanged.
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-gate-legacy").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.Legacy","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+
+        project.service<KensaIndexLoader>().loadFromFile(File(bundle, "indices.json"))
+
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(TestStatus.PASSED, results.getClassStatus("com.example.Legacy"))
+        assertTrue(results.activeRuns().isEmpty())
+    }
+
+    @Test
+    fun `probeRunMarker records an abandoned run`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-probe-abandoned").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"2026-08-27T10:15:30.00Z","pid":12345,"finishedAt":null}"""
+        )
+
+        project.service<KensaIndexLoader>().probeRunMarker(bundle) { false }
+
+        assertEquals(RunPhase.ABANDONED, project.service<KensaTestResultsService>().activeRuns().single().phase)
+    }
+
+    @Test
+    fun `probeRunMarker with a finished marker loads the indices`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-probe-finished").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "indices.json").writeText(
+            """{"indices":[{"testClass":"com.example.ProbeDone","state":"Passed",
+            "children":[{"testMethod":"m","state":"Passed"}]}]}"""
+        )
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"x","pid":1,"finishedAt":"2026-08-27T10:16:02.00Z"}"""
+        )
+
+        project.service<KensaIndexLoader>().probeRunMarker(bundle) { false }
+
+        assertEquals(TestStatus.PASSED, project.service<KensaTestResultsService>().getClassStatus("com.example.ProbeDone"))
+    }
+
+    @Test
+    fun `probeRunMarker counts written classes for a running bundle`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-probe-count").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "run.json").writeText("""{"startedAt":"x","pid":1,"finishedAt":null}""")
+        File(bundle, "results").apply { mkdirs() }.also {
+            File(it, "com.example.A.json").writeText("{}")
+        }
+
+        project.service<KensaIndexLoader>().probeRunMarker(bundle) { true }
+
+        assertEquals(1, project.service<KensaTestResultsService>().activeRuns().single().classesWritten)
+    }
+
+    @Test
+    fun `refreshRunStates reclassifies a running bundle whose process died`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-refresh").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        File(bundle, "run.json").writeText("""{"startedAt":"x","pid":12345,"finishedAt":null}""")
+        val loader = project.service<KensaIndexLoader>()
+        loader.probeRunMarker(bundle) { true }
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(RunPhase.RUNNING, results.activeRuns().single().phase)
+
+        loader.refreshRunStates { false }
+
+        assertEquals(RunPhase.ABANDONED, results.activeRuns().single().phase)
+    }
+
+    @Test
+    fun `probeBuildDir discovers a running bundle with no indices json`() {
+        val project = projectFixture.get()
+        val buildDir = Files.createTempDirectory("kensa-probe-build").toFile()
+        val bundle = File(buildDir, "kensa-output").apply { mkdirs() }
+        File(bundle, "run.json").writeText(
+            """{"startedAt":"x","pid":${ProcessHandle.current().pid()},"finishedAt":null}"""
+        )
+
+        project.service<KensaIndexLoader>().probeBuildDir(buildDir, "kensa-output")
+
+        assertEquals(RunPhase.RUNNING, project.service<KensaTestResultsService>().activeRuns().single().phase)
+    }
+
+    @Test
+    fun `probeBuildDir ignores run markers in non-bundle dirs`() {
+        val project = projectFixture.get()
+        val buildDir = Files.createTempDirectory("kensa-probe-other").toFile()
+        val notABundle = File(buildDir, "tmp").apply { mkdirs() }
+        File(notABundle, "run.json").writeText("""{"startedAt":"x","pid":1,"finishedAt":null}""")
+
+        project.service<KensaIndexLoader>().probeBuildDir(buildDir, "kensa-output")
+
+        assertTrue(project.service<KensaTestResultsService>().activeRuns().isEmpty())
+    }
+
+    @Test
+    fun `probeRunMarker clears stale run state when run json disappears but the dir survives`() {
+        val project = projectFixture.get()
+        val bundle = Files.createTempDirectory("kensa-run-json-gone").toFile()
+            .resolve("build/kensa-output").apply { mkdirs() }
+        val runJson = File(bundle, "run.json").apply {
+            writeText("""{"startedAt":"x","pid":${ProcessHandle.current().pid()},"finishedAt":null}""")
+        }
+        val loader = project.service<KensaIndexLoader>()
+        loader.probeRunMarker(bundle) { true }
+        val results = project.service<KensaTestResultsService>()
+        assertEquals(RunPhase.RUNNING, results.activeRuns().single().phase)
+
+        // run.json deleted (manual delete, or a pre-0.9.2 kensa downgrade wiping the dir contents
+        // without writing a marker) but the bundle dir itself is left in place.
+        runJson.delete()
+        assertTrue(bundle.exists())
+
+        loader.probeRunMarker(bundle) { true }
+
+        assertTrue(results.activeRuns().isEmpty())
+    }
 }

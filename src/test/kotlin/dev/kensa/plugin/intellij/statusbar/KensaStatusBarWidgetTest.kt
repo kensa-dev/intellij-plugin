@@ -3,8 +3,11 @@ package dev.kensa.plugin.intellij.statusbar
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.projectFixture
+import dev.kensa.plugin.intellij.gutter.RunPhase
+import dev.kensa.plugin.intellij.gutter.RunStateEntry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
@@ -53,5 +56,38 @@ class KensaStatusBarWidgetTest {
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun `running text sums classes across running bundles`() {
+        val entries = listOf(
+            RunStateEntry("/a/kensa-output", RunPhase.RUNNING, "2026-08-27T10:15:30.00Z", 1, 3),
+            RunStateEntry("/b/kensa-output", RunPhase.RUNNING, "2026-08-27T10:15:31.00Z", 2, 2),
+            RunStateEntry("/c/kensa-output", RunPhase.ABANDONED, null, 3, 1),
+        )
+        assertEquals("running, 5 classes", KensaStatusBarWidget.runningText(entries))
+    }
+
+    @Test
+    fun `running text uses singular for one class`() {
+        val entries = listOf(RunStateEntry("/a/kensa-output", RunPhase.RUNNING, null, 1, 1))
+        assertEquals("running, 1 class", KensaStatusBarWidget.runningText(entries))
+    }
+
+    @Test
+    fun `abandoned tooltip names the start time and pid`() {
+        val entries = listOf(
+            RunStateEntry("/a/kensa-output", RunPhase.ABANDONED, "2026-08-27T10:15:30.00Z", 12345, 2),
+        )
+        val tooltip = KensaStatusBarWidget.abandonedTooltip(entries)
+        assertTrue(tooltip.contains("never completed"))
+        assertTrue(tooltip.contains("12345"))
+        assertTrue(tooltip.contains("re-run"))
+    }
+
+    @Test
+    fun `abandoned tooltip survives an unparseable start time`() {
+        val entries = listOf(RunStateEntry("/a/kensa-output", RunPhase.ABANDONED, "garbage", null, 0))
+        assertTrue(KensaStatusBarWidget.abandonedTooltip(entries).contains("never completed"))
     }
 }

@@ -15,7 +15,7 @@ import java.io.File
 import java.util.concurrent.Executor
 
 /**
- * Reacts to VFS changes on Kensa report files. VFS events are delivered on the EDT inside a write
+ * Reacts to VFS changes on Kensa report files (`indices.json`, `run.json`). VFS events are delivered on the EDT inside a write
  * action, so this listener only does cheap path filtering inline and hands the file IO + JSON
  * parsing to [executor]. The executor is single-threaded so batches apply in event order.
  */
@@ -38,7 +38,15 @@ internal class KensaVfsListener(
             }
             .map { it.path }
 
-        if (!hasRelevantDelete && candidatePaths.isEmpty()) return
+        val runMarkerDirs = events
+            .filter { event ->
+                (event is VFileContentChangeEvent || event is VFileCreateEvent) &&
+                    event.path.startsWith(basePath) &&
+                    event.path.endsWith("/run.json")
+            }
+            .mapNotNull { File(it.path).parentFile }
+
+        if (!hasRelevantDelete && candidatePaths.isEmpty() && runMarkerDirs.isEmpty()) return
 
         executor.execute {
             if (project.isDisposed) return@execute
@@ -51,6 +59,11 @@ internal class KensaVfsListener(
                 val file = File(path)
                 if (KensaIndexLoader.isKensaIndicesJson(file, outputDir)) {
                     loader.loadFromFile(file)
+                }
+            }
+            runMarkerDirs.forEach { dir ->
+                if (KensaIndexLoader.isKensaBundleDir(dir, outputDir)) {
+                    loader.probeRunMarker(dir)
                 }
             }
         }

@@ -117,6 +117,7 @@ class KensaOutputFileWatcherStartupActivity : ProjectActivity {
                 buildRoots.get().forEach { root ->
                     project.service<KensaIndexLoader>().probeBuildDir(File(root), outputDir)
                 }
+                project.service<KensaIndexLoader>().refreshRunStates()
                 syncWatchedRoots()
             },
             3, 3, TimeUnit.SECONDS,
