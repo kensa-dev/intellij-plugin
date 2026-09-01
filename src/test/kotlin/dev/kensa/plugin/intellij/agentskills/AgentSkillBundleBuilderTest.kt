@@ -53,25 +53,6 @@ class AgentSkillBundleBuilderTest {
     }
 
     @Test
-    fun `Claude Code target preserves original skill frontmatter and writes multiple files`() {
-        val files = AgentSkillBundleBuilder.buildClaudeSkillFiles(SkillTarget.CLAUDE_CODE, skillRaw, references)
-
-        assertEquals(
-            setOf(
-                ".claude/skills/kensa-development/SKILL.md",
-                ".claude/skills/kensa-development/references/fixtures.md",
-                ".claude/skills/kensa-development/references/setup-steps.md",
-            ),
-            files.keys,
-        )
-        assertEquals(skillRaw, files[".claude/skills/kensa-development/SKILL.md"])
-        assertTrue(files[".claude/skills/kensa-development/SKILL.md"]!!.startsWith("---"),
-            "Claude frontmatter must be preserved")
-        assertEquals("# Fixtures\n\nFixture rules.", files[".claude/skills/kensa-development/references/fixtures.md"])
-        assertEquals("# Setup steps\n\nSetup rules.", files[".claude/skills/kensa-development/references/setup-steps.md"])
-    }
-
-    @Test
     fun `output paths reflect target`() {
         assertEquals(".github/instructions/kensa.instructions.md", SkillTarget.COPILOT_SCOPED.outputPath)
         assertEquals(".github/copilot-instructions.md", SkillTarget.COPILOT_ALWAYS.outputPath)
@@ -79,5 +60,34 @@ class AgentSkillBundleBuilderTest {
         assertEquals(".junie/guidelines.md", SkillTarget.JUNIE.outputPath)
         assertEquals(".claude/skills/kensa-development", SkillTarget.CLAUDE_CODE.outputPath)
         assertTrue(SkillTarget.CLAUDE_CODE.isDirectory)
+    }
+    @Test
+    fun `Claude Code install copies every file the manifest lists`() {
+        val files = AgentSkillBundleBuilder.filesFor(SkillTarget.CLAUDE_CODE, "/test-skills/kensa-development")
+
+        assertEquals(
+            setOf(
+                ".claude/skills/kensa-development/SKILL.md",
+                ".claude/skills/kensa-development/references/captured-outputs.md",
+                ".claude/skills/kensa-development/references/fixtures.md",
+                ".claude/skills/kensa-development/references/interactions.md",
+                ".claude/skills/kensa-development/references/rendered-value.md",
+                ".claude/skills/kensa-development/references/setup-steps.md",
+                ".claude/skills/kensa-development/references/mcp-tools.md",
+                ".claude/skills/kensa-development/references/authoring/overview.md",
+            ),
+            files.keys,
+        )
+        assertEquals("# Overview\n\nPipeline.\n", files[".claude/skills/kensa-development/references/authoring/overview.md"])
+    }
+
+    @Test
+    fun `single file install concatenates only the practice references`() {
+        val output = AgentSkillBundleBuilder.filesFor(SkillTarget.JUNIE, "/test-skills/kensa-development").values.single()
+
+        assertTrue(output.contains("fixtures rules."))
+        assertTrue(output.contains("setup-steps rules."))
+        assertFalse(output.contains("mcp-tools rules."))
+        assertFalse(output.contains("Pipeline."))
     }
 }

@@ -1,0 +1,8 @@
+SKILL.md
+references/captured-outputs.md
+references/fixtures.md
+references/interactions.md
+references/rendered-value.md
+references/setup-steps.md
+references/mcp-tools.md
+references/authoring/overview.md

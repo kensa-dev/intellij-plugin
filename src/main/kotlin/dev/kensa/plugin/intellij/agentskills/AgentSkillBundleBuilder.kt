@@ -4,8 +4,12 @@ object AgentSkillBundleBuilder {
 
     private const val RESOURCE_ROOT = "/skills/kensa-development"
     private const val SKILL_FILE = "SKILL.md"
+    private const val MANIFEST_FILE = "manifest.txt"
 
-    private val REFERENCE_FILES = listOf(
+    // The single-file targets (Copilot, Junie, Cursor) get the practice rules
+    // only: the authoring pipeline and MCP notes are Claude-specific and would
+    // bloat an always-loaded instruction file.
+    private val PRACTICE_REFERENCES = listOf(
         "captured-outputs",
         "fixtures",
         "interactions",
@@ -13,16 +17,19 @@ object AgentSkillBundleBuilder {
         "setup-steps",
     )
 
-    fun filesFor(target: SkillTarget): Map<String, String> {
-        val skillRaw = readResource("$RESOURCE_ROOT/$SKILL_FILE")
-        val references = REFERENCE_FILES.map { name ->
-            "references/$name.md" to readResource("$RESOURCE_ROOT/references/$name.md")
+    fun filesFor(target: SkillTarget, resourceRoot: String = RESOURCE_ROOT): Map<String, String> {
+        if (target.isDirectory) {
+            // The manifest lists every file fetchKensaSkills bundled, so the
+            // installed skill matches the skill the router expects.
+            return readResource("$resourceRoot/$MANIFEST_FILE").lineSequence()
+                .filter { it.isNotBlank() }
+                .associate { relative -> "${target.outputPath}/$relative" to readResource("$resourceRoot/$relative") }
         }
-        return if (target.isDirectory) {
-            buildClaudeSkillFiles(target, skillRaw, references)
-        } else {
-            mapOf(target.outputPath to buildSingleFile(target, skillRaw, references))
+        val skillRaw = readResource("$resourceRoot/$SKILL_FILE")
+        val references = PRACTICE_REFERENCES.map { name ->
+            "references/$name.md" to readResource("$resourceRoot/references/$name.md")
         }
+        return mapOf(target.outputPath to buildSingleFile(target, skillRaw, references))
     }
 
     internal fun buildSingleFile(
@@ -39,17 +46,6 @@ object AgentSkillBundleBuilder {
             append("\n\n")
             append(content.trimEnd())
             append('\n')
-        }
-    }
-
-    internal fun buildClaudeSkillFiles(
-        target: SkillTarget,
-        skillRaw: String,
-        references: List<Pair<String, String>>,
-    ): Map<String, String> = buildMap {
-        put("${target.outputPath}/$SKILL_FILE", skillRaw)
-        for ((relativePath, content) in references) {
-            put("${target.outputPath}/$relativePath", content)
         }
     }
 
