@@ -147,9 +147,18 @@ val kensaSkillsLocalPath = providers.gradleProperty("kensaSkillsLocalPath").orNu
 val kensaSkillsOutputDir = layout.buildDirectory.dir("generated-resources/agent-skills/skills/kensa-development")
 val kensaSkillsRelativePaths = listOf(
     "SKILL.md",
+    "references/authoring/generate-kage-acceptance.md",
+    "references/authoring/intake.md",
+    "references/authoring/introspect.md",
+    "references/authoring/overview.md",
+    "references/authoring/scaffold-from-replay-scenario.md",
+    "references/authoring/self-review.md",
     "references/captured-outputs.md",
+    "references/dsl.md",
     "references/fixtures.md",
     "references/interactions.md",
+    "references/iterate.md",
+    "references/mcp-tools.md",
     "references/rendered-value.md",
     "references/setup-steps.md",
 )
@@ -166,13 +175,13 @@ val fetchKensaSkills by tasks.registering {
         val outDir = outDirProvider.get().asFile
         outDir.deleteRecursively()
         outDir.mkdirs()
-        File(outDir, "references").mkdirs()
         if (localPath != null) {
             val sourceRoot = File(localPath, "plugins/kensa/skills/kensa-development")
             require(sourceRoot.isDirectory) { "kensaSkillsLocalPath does not contain plugins/kensa/skills/kensa-development: $localPath" }
             relativePaths.forEach { relative ->
                 val source = File(sourceRoot, relative)
                 require(source.isFile) { "Skill file missing: ${source.absolutePath}" }
+                File(outDir, relative).parentFile.mkdirs()
                 source.copyTo(File(outDir, relative), overwrite = true)
             }
         } else {
@@ -180,9 +189,13 @@ val fetchKensaSkills by tasks.registering {
             val baseUrl = "https://raw.githubusercontent.com/kensa-dev/agent-skills/$ref/plugins/kensa/skills/kensa-development"
             relativePaths.forEach { relative ->
                 val text = URI("$baseUrl/$relative").toURL().readText()
+                File(outDir, relative).parentFile.mkdirs()
                 File(outDir, relative).writeText(text)
             }
         }
+        // The install action copies exactly what this manifest names, so the
+        // bundled skill and the installed skill cannot drift apart.
+        File(outDir, "manifest.txt").writeText(relativePaths.joinToString("\n", postfix = "\n"))
     }
 }
 
