@@ -3,6 +3,10 @@
 # Kensa IntelliJ Plugin Changelog
 
 ## [Unreleased]
+### Added
+- The status bar shows running and abandoned test runs, read from the `run.json` marker kensa-core 0.9.2 writes into every output bundle. Terminal, Gradle-from-shell and CI-style runs are no longer invisible while they execute, and a run whose JVM died part way is flagged instead of leaving an empty report unexplained. Results load when the marker's `finishedAt` lands — the writer's own statement that the whole report is on disk — rather than on the `indices.json` write event.
+- While a run is in progress the status bar shows live counts from the marker: classes written and methods passed, failed and disabled so far (kensa-core 0.9.2 markers; older bundles fall back to the class-file count).
+
 ### Changed
 - The bundled kensa-development agent skill is pinned to agent-skills 0.9.2 (`version.txt` was stale at 0.8.9).
 - "Install Kensa Agent Skills" for Claude Code installs the complete skill — the MCP tools, Diagnose and Iterate references and the authoring pipeline — driven by a bundle manifest. Single-file targets (Copilot, Junie, Cursor) keep the five practice references.
