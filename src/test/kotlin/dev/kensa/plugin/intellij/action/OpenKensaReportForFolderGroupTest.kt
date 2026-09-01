@@ -113,6 +113,33 @@ class OpenKensaReportForFolderGroupTest {
     }
 
     @Test
+    fun `children have non-empty text when the bundle dir itself is selected`() {
+        // Right-clicking kensa-output itself makes relativize() return an empty path; an
+        // AnAction with empty text throws PluginException when the popup renders it.
+        val project = projectFixture.get()
+        val results = project.service<KensaTestResultsService>()
+        val tempDir = Files.createTempDirectory("kensa-folder-self").toFile()
+        val outputDir = File(tempDir, "module/kensa-output").apply { mkdirs() }
+        val indexHtml = File(outputDir, "index.html").apply { writeText("<html/>") }
+
+        results.updateFromIndex("com.example.Self", null, indexHtml.absolutePath, mapOf("m" to TestStatus.PASSED))
+
+        val vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(outputDir)
+            ?: error("output dir not visible to VFS")
+
+        val action = OpenKensaReportForFolderGroup()
+        val context = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.VIRTUAL_FILE, vDir)
+            .build()
+        val event = TestActionEvent.createTestEvent(action, context)
+        val children = action.getChildren(event)
+
+        assertEquals(1, children.size)
+        assertFalse(children.single().templatePresentation.text.isNullOrEmpty())
+    }
+
+    @Test
     fun `normal-mode output discovered by scan shows the folder menu`() {
         // End-to-end: mirror a real non-site project (build/kensa-output/) on disk, run the
         // same discovery the startup scan/poll use, then assert the project-tree menu shows.

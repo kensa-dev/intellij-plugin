@@ -34,7 +34,10 @@ class OpenKensaReportForFolderGroup : ActionGroup("Open Kensa Report", true) {
             .filter { File(it).exists() }
             .sorted()
             .map { indexHtml ->
+                // relativize() is empty when the selected folder IS the bundle dir; an empty
+                // menu label makes the platform throw when rendering the popup.
                 val label = folderPath.relativize(File(indexHtml).parentFile.toPath()).toString()
+                    .ifEmpty { folder.name }
                 OpenIndexAction(project, indexHtml, label)
             }
             .toTypedArray()
